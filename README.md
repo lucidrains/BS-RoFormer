@@ -1,3 +1,5 @@
+<img src="./bs-roformer.png" width="450px"></img>
+
 ## BS-RoFormer (wip)
 
 Implementation of <a href="https://arxiv.org/abs/2309.02612">Band Split Roformer</a>, SOTA Attention network for music source separation out of ByteDance AI Labs
