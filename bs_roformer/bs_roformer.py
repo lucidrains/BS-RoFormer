@@ -3,6 +3,8 @@ from torch import nn, einsum, Tensor
 from torch.nn import Module, ModuleList
 import torch.nn.functional as F
 
+from bs_roformer.attend import Attend
+
 from beartype import beartype
 
 from rotary_embedding_torch import RotaryEmbedding
@@ -55,7 +57,8 @@ class Attention(Module):
         heads = 8,
         dim_head = 64,
         dropout = 0.,
-        rotary_embed = None
+        rotary_embed = None,
+        flash = True
     ):
         super().__init__()
         self.heads = heads
@@ -63,6 +66,8 @@ class Attention(Module):
         dim_inner = heads * dim_head
 
         self.rotary_embed = rotary_embed
+
+        self.attend = Attend(flash = flash, dropout = dropout)
 
         self.norm = RMSNorm(dim)
         self.to_qkv = nn.Linear(dim, dim_inner * 3, bias = False)
@@ -81,11 +86,7 @@ class Attention(Module):
             q = self.rotary_embed.rotate_queries_or_keys(q)
             k = self.rotary_embed.rotate_queries_or_keys(k)
 
-        sim = einsum('b h i d, b h j d -> b h i j', q, k) * self.scale
-
-        attn = sim.softmax(dim = -1)
-
-        out = einsum('b h i j, b h j d -> b h i d', attn, v)
+        out = self.attend(q, k, v)
 
         out = rearrange(out, 'b h n d -> b n (h d)')
         return self.to_out(out)
@@ -102,14 +103,15 @@ class Transformer(Module):
         ff_dropout = 0.,
         ff_mult = 4,
         norm_output = True,
-        rotary_embed = None
+        rotary_embed = None,
+        flash_attn = True
     ):
         super().__init__()
         self.layers = ModuleList([])
 
         for _ in range(depth):
             self.layers.append(ModuleList([
-                Attention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, rotary_embed = rotary_embed),
+                Attention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, rotary_embed = rotary_embed, flash = flash_attn),
                 FeedForward(dim = dim, mult = ff_mult, dropout = ff_dropout)
             ]))
 
@@ -136,7 +138,8 @@ class BSRoformer(Module):
         dim_head = 64,
         heads = 8,
         attn_dropout = 0.,
-        ff_dropout = 0.
+        ff_dropout = 0.,
+        flash_attn = True
     ):
         super().__init__()
 
@@ -147,7 +150,8 @@ class BSRoformer(Module):
             heads = heads,
             dim_head = dim_head,
             attn_dropout = attn_dropout,
-            ff_dropout = ff_dropout
+            ff_dropout = ff_dropout,
+            flash_attn = flash_attn
         )
 
         time_rotary_embed = RotaryEmbedding(dim = dim_head)

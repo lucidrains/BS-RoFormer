@@ -14,3 +14,32 @@ Implementation of <a href="https://arxiv.org/abs/2309.02612">Band Split Roformer
     url     = {https://api.semanticscholar.org/CorpusID:261556702}
 }
 ```
+
+```bibtex
+@misc{ho2019axial,
+    title  = {Axial Attention in Multidimensional Transformers},
+    author = {Jonathan Ho and Nal Kalchbrenner and Dirk Weissenborn and Tim Salimans},
+    year   = {2019},
+    archivePrefix = {arXiv}
+}
+```
+
+```bibtex
+@misc{su2021roformer,
+    title   = {RoFormer: Enhanced Transformer with Rotary Position Embedding},
+    author  = {Jianlin Su and Yu Lu and Shengfeng Pan and Bo Wen and Yunfeng Liu},
+    year    = {2021},
+    eprint  = {2104.09864},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.CL}
+}
+```
+
+```bibtex
+@inproceedings{dao2022flashattention,
+    title   = {Flash{A}ttention: Fast and Memory-Efficient Exact Attention with {IO}-Awareness},
+    author  = {Dao, Tri and Fu, Daniel Y. and Ermon, Stefano and Rudra, Atri and R{\'e}, Christopher},
+    booktitle = {Advances in Neural Information Processing Systems},
+    year    = {2022}
+}
+```
