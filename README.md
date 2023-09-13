@@ -4,6 +4,34 @@
 
 Implementation of <a href="https://arxiv.org/abs/2309.02612">Band Split Roformer</a>, SOTA Attention network for music source separation out of ByteDance AI Labs. They beat the previous first place by a large margin. The technique uses axial attention across frequency (hence multi-band) and time. They also have experiments to show that rotary positional encoding led to a huge improvement over learned absolute positions.
 
+## Install
+
+```bash
+$ pip install BS-RoFormer
+```
+
+## Usage
+
+```python
+import torch
+from bs_roformer import BSRoformer
+
+model = BSRoformer(
+    dim = 512,
+    depth = 2
+)
+
+x = torch.randn(2, 131680)
+target = torch.randn(2, 131680)
+
+loss = model(x, target = target)
+loss.backward()
+
+# after much training
+
+out = model(x)
+```
+
 ## Citations
 
 ```bibtex
