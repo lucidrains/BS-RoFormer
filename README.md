@@ -32,6 +32,11 @@ loss.backward()
 out = model(x)
 ```
 
+## Todo
+
+- [ ] review band split + mask estimation modules
+- [ ] get the multiscale stft loss in there
+
 ## Citations
 
 ```bibtex
