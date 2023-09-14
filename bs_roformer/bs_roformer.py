@@ -222,7 +222,11 @@ class BSRoformer(Module):
         stft_hop_length = 256,
         stft_win_length = 1024,
         stft_normalized = False,
-        mask_estimator_depth = 1
+        mask_estimator_depth = 1,
+        multi_stft_resolution_loss_weight = 1.,
+        multi_stft_resolutions_window_sizes: Tuple[int, ...] = (4096, 2048, 1024, 512, 256),
+        multi_stft_hop_size = 147,
+        multi_stft_normalized = False
     ):
         super().__init__()
 
@@ -271,10 +275,22 @@ class BSRoformer(Module):
             depth = mask_estimator_depth
         )
 
+        # for the multi-resolution stft loss
+
+        self.multi_stft_resolution_loss_weight = multi_stft_resolution_loss_weight
+        self.multi_stft_resolutions_window_sizes = multi_stft_resolutions_window_sizes
+        self.multi_stft_n_fft = stft_n_fft
+
+        self.multi_stft_kwargs = dict(
+            hop_length = multi_stft_hop_size,
+            normalized = multi_stft_normalized
+        )
+
     def forward(
         self,
         raw_audio,
-        target = None
+        target = None,
+        return_loss_breakdown = False
     ):
         """
         einops
@@ -332,4 +348,29 @@ class BSRoformer(Module):
 
         target = target[..., :recon_audio.shape[-1]] # protect against lost length on istft
 
-        return F.l1_loss(recon_audio, target)
+        loss = F.l1_loss(recon_audio, target)
+
+        multi_stft_resolution_loss = 0.
+
+        for window_size in self.multi_stft_resolutions_window_sizes:
+
+            res_stft_kwargs = dict(
+                n_fft = max(window_size, self.multi_stft_n_fft),  # not sure what n_fft is across multi resolution stft
+                win_length = window_size,
+                return_complex = True,
+                **self.multi_stft_kwargs,
+            )
+
+            recon_Y = torch.stft(recon_audio, **res_stft_kwargs)
+            target_Y = torch.stft(target, **res_stft_kwargs)
+
+            multi_stft_resolution_loss = multi_stft_resolution_loss + F.l1_loss(recon_Y, target_Y)
+
+        weighted_multi_resolution_loss = multi_stft_resolution_loss * self.multi_stft_resolution_loss_weight
+
+        total_loss =  loss + weighted_multi_resolution_loss
+
+        if not return_loss_breakdown:
+            return total_loss
+
+        return total_loss, (loss, multi_stft_resolution_loss)
