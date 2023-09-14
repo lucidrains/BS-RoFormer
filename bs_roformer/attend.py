@@ -62,14 +62,8 @@ class Attend(nn.Module):
             print_once('Non-A100 GPU detected, using math or mem efficient attention if input tensor is on cuda')
             self.cuda_config = FlashAttentionConfig(False, True, True)
 
-    def flash_attn(self, q, k, v, mask = None):
+    def flash_attn(self, q, k, v):
         _, heads, q_len, _, k_len, is_cuda, device = *q.shape, k.shape[-2], q.is_cuda, q.device
-
-        # Check if mask exists and expand to compatible shape
-        # The mask is B L, so it would have to be expanded to B H N L
-
-        if exists(mask):
-            mask = mask.expand(-1, heads, q_len, -1)
 
         # Check if there is a compatible device for flash attention
 
@@ -80,13 +74,12 @@ class Attend(nn.Module):
         with torch.backends.cuda.sdp_kernel(**config._asdict()):
             out = F.scaled_dot_product_attention(
                 q, k, v,
-                attn_mask = mask,
                 dropout_p = self.dropout if self.training else 0.
             )
 
         return out
 
-    def forward(self, q, k, v, mask = None):
+    def forward(self, q, k, v):
         """
         einstein notation
         b - batch
@@ -99,20 +92,12 @@ class Attend(nn.Module):
 
         scale = q.shape[-1] ** -0.5
 
-        if exists(mask) and mask.ndim != 4:
-            mask = rearrange(mask, 'b j -> b 1 1 j')
-
         if self.flash:
-            return self.flash_attn(q, k, v, mask = mask)
+            return self.flash_attn(q, k, v)
 
         # similarity
 
         sim = einsum(f"b h i d, b h j d -> b h i j", q, k) * scale
-
-        # key padding mask
-
-        if exists(mask):
-            sim = sim.masked_fill(~mask, -torch.finfo(sim.dtype).max)
 
         # attention
 
