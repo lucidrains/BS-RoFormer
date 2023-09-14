@@ -41,8 +41,9 @@ out = model(x)
 
 ## Todo
 
+- [x] get the multiscale stft loss in there
+- [ ] figure out what `n_fft` should be
 - [ ] review band split + mask estimation modules
-- [ ] get the multiscale stft loss in there
 
 ## Citations
 
