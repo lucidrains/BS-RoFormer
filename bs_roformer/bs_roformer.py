@@ -17,6 +17,12 @@ from einops import rearrange, pack, unpack
 def exists(val):
     return val is not None
 
+def pack_one(t, pattern):
+    return pack([t], pattern)
+
+def unpack_one(t, ps, pattern):
+    return unpack(t, ps, pattern)[0]
+
 # norm
 
 class RMSNorm(Module):
@@ -209,6 +215,7 @@ class BSRoformer(Module):
         dim,
         *,
         depth,
+        stereo = False,
         time_transformer_depth = 2,
         freq_transformer_depth = 2,
         freqs_per_bands: Tuple[int, ...] = (512, 513),  # in the paper, they divide into ~60 bands, test with 1 for starters
@@ -230,6 +237,8 @@ class BSRoformer(Module):
     ):
         super().__init__()
 
+        self.stereo = stereo
+        self.audio_channels = 2 if stereo else 1
         self.layers = ModuleList([])
 
         transformer_kwargs = dict(
@@ -257,12 +266,12 @@ class BSRoformer(Module):
             normalized = stft_normalized
         )
 
-        freqs = torch.stft(torch.randn(1, 1024), **self.stft_kwargs, return_complex = True).shape[1]
+        freqs = torch.stft(torch.randn(1, 4096), **self.stft_kwargs, return_complex = True).shape[1]
 
         assert len(freqs_per_bands) > 1
-        assert sum(freqs_per_bands) == freqs, f'the number of freqs in the bands must equal {freqs} based on the STFT settings'
+        assert sum(freqs_per_bands) == freqs, f'the number of freqs in the bands must equal {freqs} based on the STFT settings, but got {sum(freqs_per_bands)}'
 
-        freqs_per_bands_with_complex = tuple(2 * f for f in freqs_per_bands)
+        freqs_per_bands_with_complex = tuple(2 * f * self.audio_channels for f in freqs_per_bands)
 
         self.band_split = BandSplit(
             dim = dim,
@@ -298,14 +307,26 @@ class BSRoformer(Module):
         b - batch
         f - freq
         t - time
+        s - audio channel (1 for mono, 2 for stereo)
         c - complex (2)
         d - feature dimension
         """
 
+        if raw_audio.ndim == 2:
+            raw_audio = rearrange(raw_audio, 'b t -> b 1 t')
+
+        channels = raw_audio.shape[1]
+        assert (not self.stereo and channels == 1) or (self.stereo and channels == 2), 'stereo needs to be set to True if passing in audio signal that is stereo (channel dimension of 2). also need to be False if mono (channel dimension of 1)'
+
         # to stft
+
+        raw_audio, batch_audio_channel_packed_shape = pack_one(raw_audio, '* t')
 
         stft_repr = torch.stft(raw_audio, **self.stft_kwargs, return_complex = True)
         stft_repr = torch.view_as_real(stft_repr)
+
+        stft_repr = unpack_one(stft_repr, batch_audio_channel_packed_shape, '* f t c')
+        stft_repr = rearrange(stft_repr, 'b s f t c -> b (f s) t c') # merge stereo / mono into the frequency, with frequency leading dimension, for band splitting
 
         x = rearrange(stft_repr, 'b f t c -> b t (f c)')
 
@@ -337,14 +358,19 @@ class BSRoformer(Module):
 
         # istft
 
+        stft_repr = rearrange(stft_repr, 'b (f s) t c -> (b s) f t c', s = self.audio_channels)
         stft_repr = torch.view_as_complex(stft_repr)
 
         recon_audio = torch.istft(stft_repr, **self.stft_kwargs, return_complex = False)
+        recon_audio = unpack_one(recon_audio, batch_audio_channel_packed_shape, '* t')
 
         # if a target is passed in, calculate loss for learning
 
         if not exists(target):
             return recon_audio
+
+        if exists(target) and target.ndim == 2:
+            target = rearrange(target, 'b t -> b 1 t')
 
         target = target[..., :recon_audio.shape[-1]] # protect against lost length on istft
 
@@ -361,8 +387,8 @@ class BSRoformer(Module):
                 **self.multi_stft_kwargs,
             )
 
-            recon_Y = torch.stft(recon_audio, **res_stft_kwargs)
-            target_Y = torch.stft(target, **res_stft_kwargs)
+            recon_Y = torch.stft(rearrange(recon_audio, 'b s t -> (b s) t'), **res_stft_kwargs)
+            target_Y = torch.stft(rearrange(target, 'b s t -> (b s) t'), **res_stft_kwargs)
 
             multi_stft_resolution_loss = multi_stft_resolution_loss + F.l1_loss(recon_Y, target_Y)
 
