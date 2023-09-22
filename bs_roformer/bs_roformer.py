@@ -216,6 +216,7 @@ class BSRoformer(Module):
         *,
         depth,
         stereo = False,
+        num_stems = 1,
         time_transformer_depth = 2,
         freq_transformer_depth = 2,
         freqs_per_bands: Tuple[int, ...] = (512, 513),  # in the paper, they divide into ~60 bands, test with 1 for starters
@@ -239,6 +240,8 @@ class BSRoformer(Module):
 
         self.stereo = stereo
         self.audio_channels = 2 if stereo else 1
+        self.num_stems = num_stems
+
         self.layers = ModuleList([])
 
         transformer_kwargs = dict(
@@ -278,11 +281,16 @@ class BSRoformer(Module):
             dim_inputs = freqs_per_bands_with_complex
         )
 
-        self.mask_estimator = MaskEstimator(
-            dim = dim,
-            dim_inputs = freqs_per_bands_with_complex,
-            depth = mask_estimator_depth
-        )
+        self.mask_estimators = nn.ModuleList([])
+
+        for _ in range(num_stems):
+            mask_estimator = MaskEstimator(
+                dim = dim,
+                dim_inputs = freqs_per_bands_with_complex,
+                depth = mask_estimator_depth
+            )
+
+            self.mask_estimators.append(mask_estimator)
 
         # for the multi-resolution stft loss
 
@@ -308,6 +316,7 @@ class BSRoformer(Module):
         f - freq
         t - time
         s - audio channel (1 for mono, 2 for stereo)
+        n - number of 'stems'
         c - complex (2)
         d - feature dimension
         """
@@ -349,28 +358,38 @@ class BSRoformer(Module):
 
             x, = unpack(x, ps, 'b * d')
 
-        mask = self.mask_estimator(x)
-        mask = rearrange(mask, 'b t (f c) -> b f t c', c = 2)
+        num_stems = len(self.mask_estimators)
+
+        mask = torch.stack([fn(x) for fn in self.mask_estimators], dim = 1)
+        mask = rearrange(mask, 'b n t (f c) -> b n f t c', c = 2)
 
         # modulate frequency representation
 
+        stft_repr = rearrange(stft_repr, 'b f t c -> b 1 f t c')
         stft_repr = stft_repr * mask
 
         # istft
 
-        stft_repr = rearrange(stft_repr, 'b (f s) t c -> (b s) f t c', s = self.audio_channels)
+        stft_repr = rearrange(stft_repr, 'b n (f s) t c -> (b n s) f t c', s = self.audio_channels)
         stft_repr = torch.view_as_complex(stft_repr)
 
         recon_audio = torch.istft(stft_repr, **self.stft_kwargs, return_complex = False)
-        recon_audio = unpack_one(recon_audio, batch_audio_channel_packed_shape, '* t')
+
+        recon_audio = rearrange(recon_audio, '(b n s) t -> b n s t', s = self.audio_channels, n = num_stems)
+
+        if num_stems == 1:
+            recon_audio = rearrange(recon_audio, 'b 1 s t -> b s t')
 
         # if a target is passed in, calculate loss for learning
 
         if not exists(target):
             return recon_audio
 
-        if exists(target) and target.ndim == 2:
-            target = rearrange(target, 'b t -> b 1 t')
+        if self.num_stems > 1:
+            assert target.ndim == 4 and target.shape[1] == self.num_stems
+        
+        if target.ndim == 2:
+            target = rearrange(target, '... t -> ... 1 t')
 
         target = target[..., :recon_audio.shape[-1]] # protect against lost length on istft
 
@@ -387,8 +406,8 @@ class BSRoformer(Module):
                 **self.multi_stft_kwargs,
             )
 
-            recon_Y = torch.stft(rearrange(recon_audio, 'b s t -> (b s) t'), **res_stft_kwargs)
-            target_Y = torch.stft(rearrange(target, 'b s t -> (b s) t'), **res_stft_kwargs)
+            recon_Y = torch.stft(rearrange(recon_audio, '... s t -> (... s) t'), **res_stft_kwargs)
+            target_Y = torch.stft(rearrange(target, '... s t -> (... s) t'), **res_stft_kwargs)
 
             multi_stft_resolution_loss = multi_stft_resolution_loss + F.l1_loss(recon_Y, target_Y)
 
