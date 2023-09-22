@@ -211,16 +211,16 @@ class BSRoformer(Module):
         depth,
         time_transformer_depth = 2,
         freq_transformer_depth = 2,
-        freqs_per_bands: Tuple[int, ...] = (256, 257),  # in the paper, they divide into ~60 bands, test with 1 for starters
+        freqs_per_bands: Tuple[int, ...] = (512, 513),  # in the paper, they divide into ~60 bands, test with 1 for starters
         dim_head = 64,
         heads = 8,
         attn_dropout = 0.,
         ff_dropout = 0.,
         flash_attn = True,
-        dim_freqs_in = 513,
-        stft_n_fft = 1024,
-        stft_hop_length = 256,
-        stft_win_length = 1024,
+        dim_freqs_in = 1025,
+        stft_n_fft = 2048,
+        stft_hop_length = 441, # 10ms at 44100Hz, from sections 4.1, 4.4 in the paper
+        stft_win_length = 2048,
         stft_normalized = False,
         mask_estimator_depth = 1,
         multi_stft_resolution_loss_weight = 1.,
