@@ -219,7 +219,7 @@ class BSRoformer(Module):
         flash_attn = True,
         dim_freqs_in = 1025,
         stft_n_fft = 2048,
-        stft_hop_length = 441, # 10ms at 44100Hz, from sections 4.1, 4.4 in the paper
+        stft_hop_length = 512, # 10ms at 44100Hz, from sections 4.1, 4.4 in the paper - @faroit recommends // 2 or // 4 for better reconstruction
         stft_win_length = 2048,
         stft_normalized = False,
         mask_estimator_depth = 1,
