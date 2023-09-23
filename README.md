@@ -1,6 +1,6 @@
 <img src="./bs-roformer.png" width="450px"></img>
 
-## BS-RoFormer (wip)
+## BS-RoFormer
 
 Implementation of <a href="https://arxiv.org/abs/2309.02612">Band Split Roformer</a>, SOTA Attention network for music source separation out of ByteDance AI Labs. They beat the previous first place by a large margin. The technique uses axial attention across frequency (hence multi-band) and time. They also have experiments to show that rotary positional encoding led to a huge improvement over learned absolute positions.
 
@@ -44,8 +44,8 @@ out = model(x)
 ## Todo
 
 - [x] get the multiscale stft loss in there
-- [ ] figure out what `n_fft` should be
-- [ ] review band split + mask estimation modules
+- [x] figure out what `n_fft` should be
+- [x] review band split + mask estimation modules
 
 ## Citations
 
