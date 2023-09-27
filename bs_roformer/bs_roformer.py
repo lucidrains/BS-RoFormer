@@ -346,17 +346,17 @@ class BSRoformer(Module):
         for time_transformer, freq_transformer in self.layers:
 
             x = rearrange(x, 'b t f d -> b f t d')
-            x, ps = pack([x], 'b * d')
+            x, ps = pack([x], '* t d')
 
             x = time_transformer(x)
 
-            x, = unpack(x, ps, 'b * d')
+            x, = unpack(x, ps, '* t d')
             x = rearrange(x, 'b f t d -> b t f d')
-            x, ps = pack([x], 'b * d')
+            x, ps = pack([x], '* f d')
 
             x = freq_transformer(x)
 
-            x, = unpack(x, ps, 'b * d')
+            x, = unpack(x, ps, '* f d')
 
         num_stems = len(self.mask_estimators)
 
