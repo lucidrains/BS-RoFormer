@@ -366,12 +366,17 @@ class BSRoformer(Module):
         # modulate frequency representation
 
         stft_repr = rearrange(stft_repr, 'b f t c -> b 1 f t c')
+
+        # complex number multiplication
+
+        stft_repr = torch.view_as_complex(stft_repr)
+        mask = torch.view_as_complex(mask)
+
         stft_repr = stft_repr * mask
 
         # istft
 
-        stft_repr = rearrange(stft_repr, 'b n (f s) t c -> (b n s) f t c', s = self.audio_channels)
-        stft_repr = torch.view_as_complex(stft_repr)
+        stft_repr = rearrange(stft_repr, 'b n (f s) t -> (b n s) f t', s = self.audio_channels)
 
         recon_audio = torch.istft(stft_repr, **self.stft_kwargs, return_complex = False)
 
