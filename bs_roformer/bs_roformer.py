@@ -207,6 +207,17 @@ class MaskEstimator(Module):
 
 # main class
 
+DEFAULT_FREQS_PER_BANDS = (
+  2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+  2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+  2, 2, 2, 2,
+  4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+  12, 12, 12, 12, 12, 12, 12, 12,
+  24, 24, 24, 24, 24, 24, 24, 24,
+  48, 48, 48, 48, 48, 48, 48, 48,
+  128, 129,
+)
+
 class BSRoformer(Module):
 
     @beartype
@@ -219,7 +230,7 @@ class BSRoformer(Module):
         num_stems = 1,
         time_transformer_depth = 2,
         freq_transformer_depth = 2,
-        freqs_per_bands: Tuple[int, ...] = (512, 513),  # in the paper, they divide into ~60 bands, test with 1 for starters
+        freqs_per_bands: Tuple[int, ...] = DEFAULT_FREQS_PER_BANDS,  # in the paper, they divide into ~60 bands, test with 1 for starters
         dim_head = 64,
         heads = 8,
         attn_dropout = 0.,

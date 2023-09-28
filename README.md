@@ -10,6 +10,8 @@ Implementation of <a href="https://arxiv.org/abs/2309.02612">Band Split Roformer
 
 - <a href="https://github.com/shenberg">Roee</a> and <a href="https://github.com/faroit">Fabian-Robert</a> for sharing their audio expertise and fixing audio hyperparameters
 
+- <a href="https://github.com/chenht2010">@chenht2010</a> and <a href="https://github.com/ZFTurbo">Roman</a> for working out the default band splitting hyperparameter!
+
 ## Install
 
 ```bash
