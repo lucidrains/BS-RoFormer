@@ -28,8 +28,7 @@ model = BSRoformer(
     dim = 512,
     depth = 12,
     time_transformer_depth = 1,
-    freq_transformer_depth = 1,
-    freqs_per_bands = (256, 257)  # in the paper, they divide into ~60 bands, test with 1 for starters
+    freq_transformer_depth = 1
 )
 
 x = torch.randn(2, 131680)
