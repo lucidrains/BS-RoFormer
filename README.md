@@ -31,8 +31,8 @@ model = BSRoformer(
     freq_transformer_depth = 1
 )
 
-x = torch.randn(2, 131680)
-target = torch.randn(2, 131680)
+x = torch.randn(2, 352800)
+target = torch.randn(2, 352800)
 
 loss = model(x, target = target)
 loss.backward()
