@@ -261,7 +261,8 @@ class BSRoformer(Module):
             dim_head = dim_head,
             attn_dropout = attn_dropout,
             ff_dropout = ff_dropout,
-            flash_attn = flash_attn
+            flash_attn = flash_attn,
+            norm_output = False
         )
 
         time_rotary_embed = RotaryEmbedding(dim = dim_head)
@@ -272,6 +273,8 @@ class BSRoformer(Module):
                 Transformer(depth = time_transformer_depth, rotary_embed = time_rotary_embed, **transformer_kwargs),
                 Transformer(depth = freq_transformer_depth, rotary_embed = freq_rotary_embed, **transformer_kwargs)
             ]))
+
+        self.final_norm = RMSNorm(dim)
 
         self.stft_kwargs = dict(
             n_fft = stft_n_fft,
@@ -368,6 +371,8 @@ class BSRoformer(Module):
             x = freq_transformer(x)
 
             x, = unpack(x, ps, '* f d')
+
+        x = self.final_norm(x)
 
         num_stems = len(self.mask_estimators)
 
