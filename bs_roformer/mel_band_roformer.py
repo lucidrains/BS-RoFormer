@@ -307,11 +307,6 @@ class MelBandRoformer(Module):
         self.register_buffer('num_freqs_per_band', num_freqs_per_band, persistent = False)
         self.register_buffer('num_bands_per_freq', num_bands_per_freq, persistent = False)
 
-        # calculate padding for averaging the mask for overlapping freqs
-
-        self.mask_left_pad = (freqs_per_band.cumsum(dim = -1) == 0).sum(dim = -1)
-        self.mask_right_pad = (freqs_per_band.flip(dims = (-1,)).cumsum(dim = -1) == 0).sum(dim = -1)
-
         # band split and mask estimator
 
         freqs_per_bands_with_complex = tuple(2 * f * self.audio_channels for f in num_freqs_per_band.tolist())
@@ -426,19 +421,13 @@ class MelBandRoformer(Module):
 
         # need to average the estimated mask for the overlapped frequencies
 
-        masks_per_band = masks.split(self.num_freqs_per_band.tolist(), dim = -2)
+        scatter_indices = repeat(self.freq_indices, 'f -> b 1 f t', b = batch, t = stft_repr.shape[-1])
 
-        padded_masks = []
-
-        for mask_per_band, left_pad, right_pad in zip(masks_per_band, self.mask_left_pad, self.mask_right_pad):
-            padded_mask = pad_at_dim(mask_per_band, (left_pad, right_pad), value = 0., dim = -2)
-            padded_masks.append(padded_mask)
-
-        masks_summed = torch.stack(padded_masks).sum(dim = 0)
+        masks_summed = torch.zeros_like(stft_repr).scatter_add_(2, scatter_indices, masks)
 
         denom = rearrange(self.num_bands_per_freq, 'f -> f 1')
 
-        masks_averaged = masks_summed / denom
+        masks_averaged = masks_summed / denom.clamp(min = 1e-8)
 
         # modulate stft repr with estimated mask
 
