@@ -42,6 +42,30 @@ loss.backward()
 out = model(x)
 ```
 
+To use the Mel-Band Roformer proposed in <a href="https://arxiv.org/abs/2310.01809">a recent follow up paper</a>, simply import `MelBandRoformer` instead
+
+```python
+import torch
+from bs_roformer import MelBandRoformer
+
+model = MelBandRoformer(
+    dim = 32,
+    depth = 1,
+    time_transformer_depth = 1,
+    freq_transformer_depth = 1
+)
+
+x = torch.randn(2, 352800)
+target = torch.randn(2, 352800)
+
+loss = model(x, target = target)
+loss.backward()
+
+# after much training
+
+out = model(x)
+```
+
 ## Todo
 
 - [x] get the multiscale stft loss in there
@@ -56,6 +80,15 @@ out = model(x)
     author  = {Wei-Tsung Lu and Ju-Chiang Wang and Qiuqiang Kong and Yun-Ning Hung},
     year    = {2023},
     url     = {https://api.semanticscholar.org/CorpusID:261556702}
+}
+```
+
+```bibtex
+@inproceedings{Wang2023MelBandRF,
+    title   = {Mel-Band RoFormer for Music Source Separation},
+    author  = {Ju-Chiang Wang and Wei-Tsung Lu and Minz Won},
+    year    = {2023},
+    url     = {https://api.semanticscholar.org/CorpusID:263608675}
 }
 ```
 

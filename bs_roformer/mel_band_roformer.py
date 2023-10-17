@@ -1,0 +1,496 @@
+import torch
+from torch import nn, einsum, Tensor
+from torch.nn import Module, ModuleList
+import torch.nn.functional as F
+
+from bs_roformer.attend import Attend
+
+from beartype.typing import Tuple, Optional, List
+from beartype import beartype
+
+from rotary_embedding_torch import RotaryEmbedding
+
+from einops import rearrange, pack, unpack, reduce, repeat
+
+from librosa import filters
+
+# helper functions
+
+def exists(val):
+    return val is not None
+
+def pack_one(t, pattern):
+    return pack([t], pattern)
+
+def unpack_one(t, ps, pattern):
+    return unpack(t, ps, pattern)[0]
+
+def pad_at_dim(t, pad, dim = -1, value = 0.):
+    dims_from_right = (- dim - 1) if dim < 0 else (t.ndim - dim - 1)
+    zeros = ((0, 0) * dims_from_right)
+    return F.pad(t, (*zeros, *pad), value = value)
+
+# norm
+
+class RMSNorm(Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.scale = dim ** 0.5
+        self.gamma = nn.Parameter(torch.ones(dim))
+
+    def forward(self, x):
+        return F.normalize(x, dim = -1) * self.scale * self.gamma
+
+# attention
+
+class FeedForward(Module):
+    def __init__(
+        self,
+        dim,
+        mult = 4,
+        dropout = 0.
+    ):
+        super().__init__()
+        dim_inner = int(dim * mult)
+        self.net = nn.Sequential(
+            RMSNorm(dim),
+            nn.Linear(dim, dim_inner),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(dim_inner, dim),
+            nn.Dropout(dropout)
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+class Attention(Module):
+    def __init__(
+        self,
+        dim,
+        heads = 8,
+        dim_head = 64,
+        dropout = 0.,
+        rotary_embed = None,
+        flash = True
+    ):
+        super().__init__()
+        self.heads = heads
+        self.scale = dim_head **-0.5
+        dim_inner = heads * dim_head
+
+        self.rotary_embed = rotary_embed
+
+        self.attend = Attend(flash = flash, dropout = dropout)
+
+        self.norm = RMSNorm(dim)
+        self.to_qkv = nn.Linear(dim, dim_inner * 3, bias = False)
+
+        self.to_out = nn.Sequential(
+            nn.Linear(dim_inner, dim, bias = False),
+            nn.Dropout(dropout)
+        )
+
+    def forward(self, x):
+        x = self.norm(x)
+
+        q, k, v = rearrange(self.to_qkv(x), 'b n (qkv h d) -> qkv b h n d', qkv = 3, h = self.heads)
+
+        if exists(self.rotary_embed):
+            q = self.rotary_embed.rotate_queries_or_keys(q)
+            k = self.rotary_embed.rotate_queries_or_keys(k)
+
+        out = self.attend(q, k, v)
+
+        out = rearrange(out, 'b h n d -> b n (h d)')
+        return self.to_out(out)
+
+class Transformer(Module):
+    def __init__(
+        self,
+        *,
+        dim,
+        depth,
+        dim_head = 64,
+        heads = 8,
+        attn_dropout = 0.,
+        ff_dropout = 0.,
+        ff_mult = 4,
+        norm_output = True,
+        rotary_embed = None,
+        flash_attn = True
+    ):
+        super().__init__()
+        self.layers = ModuleList([])
+
+        for _ in range(depth):
+            self.layers.append(ModuleList([
+                Attention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, rotary_embed = rotary_embed, flash = flash_attn),
+                FeedForward(dim = dim, mult = ff_mult, dropout = ff_dropout)
+            ]))
+
+        self.norm = RMSNorm(dim) if norm_output else nn.Identity()
+
+    def forward(self, x):
+
+        for attn, ff in self.layers:
+            x = attn(x) + x
+            x = ff(x) + x
+
+        return self.norm(x)
+
+# bandsplit module
+
+class BandSplit(Module):
+    @beartype
+    def __init__(
+        self,
+        dim,
+        dim_inputs: Tuple[int, ...]
+    ):
+        super().__init__()
+        self.dim_inputs = dim_inputs
+        self.to_features = ModuleList([])
+
+        for dim_in in dim_inputs:
+            net = nn.Sequential(
+                RMSNorm(dim_in),
+                nn.Linear(dim_in, dim)
+            )
+
+            self.to_features.append(net)
+
+    def forward(self, x):
+        x = x.split(self.dim_inputs, dim = -1)
+
+        outs = []
+        for split_input, to_feature in zip(x, self.to_features):
+            split_output = to_feature(split_input)
+            outs.append(split_output)
+
+        return torch.stack(outs, dim = -2)
+
+class LinearGLUWithTanH(Module):
+    def __init__(self, dim_in, dim_out):
+        super().__init__()
+        self.proj = nn.Linear(dim_in, dim_out * 2)
+
+    def forward(self, x):
+        x, gate = self.proj(x).chunk(2, dim = -1)
+        return x.tanh() * gate.sigmoid()
+
+class MaskEstimator(Module):
+    @beartype
+    def __init__(
+        self,
+        dim,
+        dim_inputs: Tuple[int, ...],
+        depth
+    ):
+        super().__init__()
+        self.dim_inputs = dim_inputs
+        self.to_freqs = ModuleList([])
+
+        for dim_in in dim_inputs:
+            net = []
+
+            for ind in range(depth):
+                is_last = ind == (depth - 1)
+                dim_out = dim if not is_last else dim_in
+                net.append(LinearGLUWithTanH(dim, dim_out))
+
+            self.to_freqs.append(nn.Sequential(*net))
+
+    def forward(self, x):
+        x = x.unbind(dim = -2)
+
+        outs = []
+
+        for band_features, to_freq in zip(x, self.to_freqs):
+            freq_out = to_freq(band_features)
+            outs.append(freq_out)
+
+        return torch.cat(outs, dim = -1)
+
+# main class
+
+class MelBandRoformer(Module):
+
+    @beartype
+    def __init__(
+        self,
+        dim,
+        *,
+        depth,
+        stereo = False,
+        num_stems = 1,
+        time_transformer_depth = 2,
+        freq_transformer_depth = 2,
+        num_bands = 62,
+        dim_head = 64,
+        heads = 8,
+        attn_dropout = 0.,
+        ff_dropout = 0.,
+        flash_attn = True,
+        dim_freqs_in = 1025,
+        sample_rate = 44100,     # needed for mel filter bank from librosa
+        stft_n_fft = 2048,
+        stft_hop_length = 512,   # 10ms at 44100Hz, from sections 4.1, 4.4 in the paper - @faroit recommends // 2 or // 4 for better reconstruction
+        stft_win_length = 2048,
+        stft_normalized = False,
+        mask_estimator_depth = 1,
+        multi_stft_resolution_loss_weight = 1.,
+        multi_stft_resolutions_window_sizes: Tuple[int, ...] = (4096, 2048, 1024, 512, 256),
+        multi_stft_hop_size = 147,
+        multi_stft_normalized = False
+    ):
+        super().__init__()
+
+        self.stereo = stereo
+        self.audio_channels = 2 if stereo else 1
+        self.num_stems = num_stems
+
+        self.layers = ModuleList([])
+
+        transformer_kwargs = dict(
+            dim = dim,
+            heads = heads,
+            dim_head = dim_head,
+            attn_dropout = attn_dropout,
+            ff_dropout = ff_dropout,
+            flash_attn = flash_attn
+        )
+
+        time_rotary_embed = RotaryEmbedding(dim = dim_head)
+        freq_rotary_embed = RotaryEmbedding(dim = dim_head)
+
+        for _ in range(depth):
+            self.layers.append(nn.ModuleList([
+                Transformer(depth = time_transformer_depth, rotary_embed = time_rotary_embed, **transformer_kwargs),
+                Transformer(depth = freq_transformer_depth, rotary_embed = freq_rotary_embed, **transformer_kwargs)
+            ]))
+
+        self.stft_kwargs = dict(
+            n_fft = stft_n_fft,
+            hop_length = stft_hop_length,
+            win_length = stft_win_length,
+            normalized = stft_normalized
+        )
+
+        freqs = torch.stft(torch.randn(1, 4096), **self.stft_kwargs, return_complex = True).shape[1]
+
+        # create mel filter bank
+        # with librosa.filters.mel as in section 2 of paper
+
+        mel_filter_bank_numpy = filters.mel(sr = sample_rate, n_fft = stft_n_fft, n_mels = num_bands)
+
+        mel_filter_bank = torch.from_numpy(mel_filter_bank_numpy)
+    
+        # for some reason, it doesn't include the first freq? just force a value for now
+
+        mel_filter_bank[0][0] = 1.
+
+        # binary as in paper (then estimated masks are averaged for overlapping regions)
+
+        freqs_per_band = mel_filter_bank > 0
+        assert freqs_per_band.any(dim = 0).all(), 'all frequencies need to be covered by all bands for now'
+
+        repeated_freq_indices = repeat(torch.arange(freqs), 'f -> b f', b = num_bands)
+        freq_indices = repeated_freq_indices[freqs_per_band]
+
+        self.register_buffer('freq_indices', freq_indices, persistent = False)
+        self.register_buffer('freqs_per_band', freqs_per_band, persistent = False)
+
+        num_freqs_per_band = reduce(freqs_per_band, 'b f -> b', 'sum')
+        num_bands_per_freq = reduce(freqs_per_band, 'b f -> f', 'sum')
+
+        self.register_buffer('num_freqs_per_band', num_freqs_per_band, persistent = False)
+        self.register_buffer('num_bands_per_freq', num_bands_per_freq, persistent = False)
+
+        # calculate padding for averaging the mask for overlapping freqs
+
+        self.mask_left_pad = (freqs_per_band.cumsum(dim = -1) == 0).sum(dim = -1)
+        self.mask_right_pad = (freqs_per_band.flip(dims = (-1,)).cumsum(dim = -1) == 0).sum(dim = -1)
+
+        # band split and mask estimator
+
+        freqs_per_bands_with_complex = tuple(2 * f * self.audio_channels for f in num_freqs_per_band.tolist())
+
+        self.band_split = BandSplit(
+            dim = dim,
+            dim_inputs = freqs_per_bands_with_complex
+        )
+
+        self.mask_estimators = nn.ModuleList([])
+
+        for _ in range(num_stems):
+            mask_estimator = MaskEstimator(
+                dim = dim,
+                dim_inputs = freqs_per_bands_with_complex,
+                depth = mask_estimator_depth
+            )
+
+            self.mask_estimators.append(mask_estimator)
+
+        # for the multi-resolution stft loss
+
+        self.multi_stft_resolution_loss_weight = multi_stft_resolution_loss_weight
+        self.multi_stft_resolutions_window_sizes = multi_stft_resolutions_window_sizes
+        self.multi_stft_n_fft = stft_n_fft
+
+        self.multi_stft_kwargs = dict(
+            hop_length = multi_stft_hop_size,
+            normalized = multi_stft_normalized
+        )
+
+    @property
+    def device(self):
+        return next(self.parameters()).device
+
+    def forward(
+        self,
+        raw_audio,
+        target = None,
+        return_loss_breakdown = False
+    ):
+        """
+        einops
+
+        b - batch
+        f - freq
+        t - time
+        s - audio channel (1 for mono, 2 for stereo)
+        n - number of 'stems'
+        c - complex (2)
+        d - feature dimension
+        """
+
+        if raw_audio.ndim == 2:
+            raw_audio = rearrange(raw_audio, 'b t -> b 1 t')
+
+        batch, channels, *_ = raw_audio.shape
+        assert (not self.stereo and channels == 1) or (self.stereo and channels == 2), 'stereo needs to be set to True if passing in audio signal that is stereo (channel dimension of 2). also need to be False if mono (channel dimension of 1)'
+
+        # to stft
+
+        raw_audio, batch_audio_channel_packed_shape = pack_one(raw_audio, '* t')
+
+        stft_repr = torch.stft(raw_audio, **self.stft_kwargs, return_complex = True)
+        stft_repr = torch.view_as_real(stft_repr)
+
+        stft_repr = unpack_one(stft_repr, batch_audio_channel_packed_shape, '* f t c')
+        stft_repr = rearrange(stft_repr, 'b s f t c -> b (f s) t c') # merge stereo / mono into the frequency, with frequency leading dimension, for band splitting
+
+        # index out all frequencies for all frequency ranges across bands ascending in one go
+
+        batch_arange = torch.arange(batch, device = self.device)[..., None]
+
+        x = stft_repr[batch_arange, self.freq_indices]
+
+        # fold the complex (real and imag) into the frequencies dimension
+
+        x = rearrange(x, 'b f t c -> b t (f c)')
+
+        x = self.band_split(x)
+
+        # axial / hierarchical attention
+
+        for time_transformer, freq_transformer in self.layers:
+
+            x = rearrange(x, 'b t f d -> b f t d')
+            x, ps = pack([x], '* t d')
+
+            x = time_transformer(x)
+
+            x, = unpack(x, ps, '* t d')
+            x = rearrange(x, 'b f t d -> b t f d')
+            x, ps = pack([x], '* f d')
+
+            x = freq_transformer(x)
+
+            x, = unpack(x, ps, '* f d')
+
+        num_stems = len(self.mask_estimators)
+
+        masks = torch.stack([fn(x) for fn in self.mask_estimators], dim = 1)
+        masks = rearrange(masks, 'b n t (f c) -> b n f t c', c = 2)
+
+        # modulate frequency representation
+
+        stft_repr = rearrange(stft_repr, 'b f t c -> b 1 f t c')
+
+        # complex number multiplication
+
+        stft_repr = torch.view_as_complex(stft_repr)
+        masks = torch.view_as_complex(masks)
+
+        # need to average the estimated mask for the overlapped frequencies
+
+        masks_per_band = masks.split(self.num_freqs_per_band.tolist(), dim = -2)
+
+        padded_masks = []
+
+        for mask_per_band, left_pad, right_pad in zip(masks_per_band, self.mask_left_pad, self.mask_right_pad):
+            padded_mask = pad_at_dim(mask_per_band, (left_pad, right_pad), value = 0., dim = -2)
+            padded_masks.append(padded_mask)
+
+        masks_summed = torch.stack(padded_masks).sum(dim = 0)
+
+        denom = rearrange(self.num_bands_per_freq, 'f -> f 1')
+
+        masks_averaged = masks_summed / denom
+
+        # modulate stft repr with estimated mask
+
+        stft_repr = stft_repr * masks_averaged
+
+        # istft
+
+        stft_repr = rearrange(stft_repr, 'b n (f s) t -> (b n s) f t', s = self.audio_channels)
+
+        recon_audio = torch.istft(stft_repr, **self.stft_kwargs, return_complex = False)
+
+        recon_audio = rearrange(recon_audio, '(b n s) t -> b n s t', s = self.audio_channels, n = num_stems)
+
+        if num_stems == 1:
+            recon_audio = rearrange(recon_audio, 'b 1 s t -> b s t')
+
+        # if a target is passed in, calculate loss for learning
+
+        if not exists(target):
+            return recon_audio
+
+        if self.num_stems > 1:
+            assert target.ndim == 4 and target.shape[1] == self.num_stems
+        
+        if target.ndim == 2:
+            target = rearrange(target, '... t -> ... 1 t')
+
+        target = target[..., :recon_audio.shape[-1]] # protect against lost length on istft
+
+        loss = F.l1_loss(recon_audio, target)
+
+        multi_stft_resolution_loss = 0.
+
+        for window_size in self.multi_stft_resolutions_window_sizes:
+
+            res_stft_kwargs = dict(
+                n_fft = max(window_size, self.multi_stft_n_fft),  # not sure what n_fft is across multi resolution stft
+                win_length = window_size,
+                return_complex = True,
+                **self.multi_stft_kwargs,
+            )
+
+            recon_Y = torch.stft(rearrange(recon_audio, '... s t -> (... s) t'), **res_stft_kwargs)
+            target_Y = torch.stft(rearrange(target, '... s t -> (... s) t'), **res_stft_kwargs)
+
+            multi_stft_resolution_loss = multi_stft_resolution_loss + F.l1_loss(recon_Y, target_Y)
+
+        weighted_multi_resolution_loss = multi_stft_resolution_loss * self.multi_stft_resolution_loss_weight
+
+        total_loss =  loss + weighted_multi_resolution_loss
+
+        if not return_loss_breakdown:
+            return total_loss
+
+        return total_loss, (loss, multi_stft_resolution_loss)
