@@ -380,7 +380,11 @@ class MelBandRoformer(Module):
 
         batch_arange = torch.arange(batch, device = self.device)[..., None]
 
-        x = stft_repr[batch_arange, self.freq_indices]
+        # account for stereo
+
+        freq_indices = repeat(self.freq_indices, 'f -> (f s)', s = channels)
+
+        x = stft_repr[batch_arange, freq_indices]
 
         # fold the complex (real and imag) into the frequencies dimension
 
@@ -421,11 +425,11 @@ class MelBandRoformer(Module):
 
         # need to average the estimated mask for the overlapped frequencies
 
-        scatter_indices = repeat(self.freq_indices, 'f -> b 1 f t', b = batch, t = stft_repr.shape[-1])
+        scatter_indices = repeat(freq_indices, 'f -> b 1 f t', b = batch, t = stft_repr.shape[-1])
 
         masks_summed = torch.zeros_like(stft_repr).scatter_add_(2, scatter_indices, masks)
 
-        denom = rearrange(self.num_bands_per_freq, 'f -> f 1')
+        denom = repeat(self.num_bands_per_freq, 'f -> (f r) 1', r = channels)
 
         masks_averaged = masks_summed / denom.clamp(min = 1e-8)
 
