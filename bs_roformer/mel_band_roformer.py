@@ -423,6 +423,8 @@ class MelBandRoformer(Module):
         stft_repr = torch.view_as_complex(stft_repr)
         masks = torch.view_as_complex(masks)
 
+        masks = masks.type(stft_repr.dtype)
+
         # need to average the estimated mask for the overlapped frequencies
 
         scatter_indices = repeat(freq_indices, 'f -> b 1 f t', b = batch, t = stft_repr.shape[-1])
