@@ -185,19 +185,25 @@ class MaskEstimator(Module):
         self,
         dim,
         dim_inputs: Tuple[int, ...],
-        depth
+        depth,
+        mlp_expansion_factor = 4
     ):
         super().__init__()
         self.dim_inputs = dim_inputs
         self.to_freqs = ModuleList([])
+        dim_hidden = dim * mlp_expansion_factor
 
         for dim_in in dim_inputs:
             net = []
 
             for ind in range(depth):
+                is_first = ind == 0
                 is_last = ind == (depth - 1)
-                dim_out = dim if not is_last else dim_in
-                net.append(LinearGLUWithTanH(dim, dim_out))
+
+                dim_layer_in = dim if is_first else dim_hidden
+                dim_layer_out = dim_hidden if not is_last else dim_in
+
+                net.append(LinearGLUWithTanH(dim_layer_in, dim_layer_out))
 
             self.to_freqs.append(nn.Sequential(*net))
 
