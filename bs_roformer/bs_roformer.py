@@ -171,7 +171,7 @@ def MLP(
     dim_out,
     dim_hidden = None,
     depth = 1,
-    activation = nn.SiLU
+    activation = nn.Tanh
 ):
     dim_hidden = default(dim_hidden, dim_in)
 
@@ -207,30 +207,20 @@ class MaskEstimator(Module):
         for dim_in in dim_inputs:
             net = []
 
-            tanh_mlp = nn.Sequential(
-                MLP(dim, dim_in // 2, dim_hidden = dim_hidden, depth = depth),
-                nn.Tanh()
-            )
-
-            glu_mlp = nn.Sequential(
-                MLP(dim, dim_in, dim_hidden = dim_hidden, depth = depth),
+            mlp = nn.Sequential(
+                MLP(dim, dim_in * 2, dim_hidden = dim_hidden, depth = depth),
                 nn.GLU(dim = -1)
             )
 
-            self.to_freqs.append(ModuleList([tanh_mlp, glu_mlp]))
+            self.to_freqs.append(mlp)
 
     def forward(self, x):
         x = x.unbind(dim = -2)
 
         outs = []
 
-        for band_features, (tanh_mlp, glu_mlp) in zip(x, self.to_freqs):
-            tanh_out = tanh_mlp(band_features)
-            glu_out = glu_mlp(band_features)
-
-            freq_out = torch.stack((tanh_out, glu_out), dim = -1)
-            freq_out = rearrange(freq_out, '... f c -> ... (f c)')
-
+        for band_features, mlp in zip(x, self.to_freqs):
+            freq_out = mlp(band_features)
             outs.append(freq_out)
 
         return torch.cat(outs, dim = -1)
