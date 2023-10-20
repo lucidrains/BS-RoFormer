@@ -89,6 +89,8 @@ class Attention(Module):
         self.norm = RMSNorm(dim)
         self.to_qkv = nn.Linear(dim, dim_inner * 3, bias = False)
 
+        self.to_gates = nn.Linear(dim, heads)
+
         self.to_out = nn.Sequential(
             nn.Linear(dim_inner, dim, bias = False),
             nn.Dropout(dropout)
@@ -104,6 +106,9 @@ class Attention(Module):
             k = self.rotary_embed.rotate_queries_or_keys(k)
 
         out = self.attend(q, k, v)
+
+        gates = self.to_gates(x)
+        out = out * rearrange(gates, 'b n h -> b h n 1').sigmoid()
 
         out = rearrange(out, 'b h n d -> b n (h d)')
         return self.to_out(out)
