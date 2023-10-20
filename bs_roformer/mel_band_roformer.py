@@ -190,7 +190,7 @@ def MLP(
 
         net.append(nn.Linear(layer_dim_in, layer_dim_out))
 
-        if not is_last:
+        if is_last:
             continue
 
         net.append(activation())
