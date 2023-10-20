@@ -296,6 +296,10 @@ class MelBandRoformer(Module):
 
         mel_filter_bank[0][0] = 1.
 
+        # In some systems/envs we get 0.0 instead of ~1.9e-18 in the last position,
+        # so let's force a positive value
+        mel_filter_bank[-1, -1] = 1.
+
         # binary as in paper (then estimated masks are averaged for overlapping regions)
 
         freqs_per_band = mel_filter_bank > 0
