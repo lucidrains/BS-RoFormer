@@ -411,7 +411,11 @@ class MelBandRoformer(Module):
 
         # account for stereo
 
-        freq_indices = repeat(self.freq_indices, 'f -> (f s)', s = channels)
+        if channels > 1:
+            freq_indices = repeat(self.freq_indices, 'f -> f s', s = 2)
+            freq_indices = freq_indices * channels
+            freq_indices += torch.arange(channels, device = self.device)
+            freq_indices = rearrange(freq_indices, 'f s -> (f s)')
 
         x = stft_repr[batch_arange, freq_indices]
 
