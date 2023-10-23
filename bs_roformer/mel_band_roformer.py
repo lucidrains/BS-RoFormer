@@ -327,6 +327,11 @@ class MelBandRoformer(Module):
         repeated_freq_indices = repeat(torch.arange(freqs), 'f -> b f', b = num_bands)
         freq_indices = repeated_freq_indices[freqs_per_band]
 
+        if stereo:
+            freq_indices = repeat(freq_indices, 'f -> f s', s = 2)
+            freq_indices = freq_indices * 2 + torch.arange(2)
+            freq_indices = rearrange(freq_indices, 'f s -> (f s)')
+
         self.register_buffer('freq_indices', freq_indices, persistent = False)
         self.register_buffer('freqs_per_band', freqs_per_band, persistent = False)
 
@@ -411,13 +416,7 @@ class MelBandRoformer(Module):
 
         # account for stereo
 
-        if channels > 1:
-            freq_indices = repeat(self.freq_indices, 'f -> f s', s = channels)
-            freq_indices = freq_indices * channels
-            freq_indices += torch.arange(channels, device = self.device)
-            freq_indices = rearrange(freq_indices, 'f s -> (f s)')
-
-        x = stft_repr[batch_arange, freq_indices]
+        x = stft_repr[batch_arange, self.freq_indices]
 
         # fold the complex (real and imag) into the frequencies dimension
 
@@ -460,7 +459,7 @@ class MelBandRoformer(Module):
 
         # need to average the estimated mask for the overlapped frequencies
 
-        scatter_indices = repeat(freq_indices, 'f -> b 1 f t', b = batch, t = stft_repr.shape[-1])
+        scatter_indices = repeat(self.freq_indices, 'f -> b 1 f t', b = batch, t = stft_repr.shape[-1])
 
         masks_summed = torch.zeros_like(stft_repr).scatter_add_(2, scatter_indices, masks)
 
