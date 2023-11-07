@@ -4,6 +4,8 @@
 
 Implementation of <a href="https://arxiv.org/abs/2309.02612">Band Split Roformer</a>, SOTA Attention network for music source separation out of ByteDance AI Labs. They beat the previous first place by a large margin. The technique uses axial attention across frequency (hence multi-band) and time. They also have experiments to show that rotary positional encoding led to a huge improvement over learned absolute positions.
 
+It also includes support for stereo training and outputting multiple stems.
+
 Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord" src="https://img.shields.io/discord/823813159592001537?color=5865F2&logo=discord&logoColor=white"></a> if you are interested in replicating a SOTA music source separator out in the open
 
 ## Appreciation
@@ -15,6 +17,8 @@ Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord
 - <a href="https://github.com/chenht2010">@chenht2010</a> and <a href="https://github.com/ZFTurbo">Roman</a> for working out the default band splitting hyperparameter!
 
 - <a href="https://github.com/dorpxam">Max Prod</a> for reporting a big bug with Mel-Band Roformer with stereo training!
+
+- <a href="https://github.com/ZFTurbo">Roman</a> for successfully training the model and open sourcing his training code and weights at <a href="https://github.com/ZFTurbo/Music-Source-Separation-Training">this repository</a>!
 
 ## Install
 
