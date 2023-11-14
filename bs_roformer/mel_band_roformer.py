@@ -400,11 +400,10 @@ class MelBandRoformer(Module):
         if raw_audio.ndim == 2:
             raw_audio = rearrange(raw_audio, 'b t -> b 1 t')
 
-        original_length = (
-            raw_audio.shape[-1] if self.match_input_audio_length else original_length
-        )
+        batch, channels, raw_audio_length = raw_audio.shape
 
-        batch, channels, *_ = raw_audio.shape
+        istft_length = raw_audio_length if self.match_input_audio_length else None
+
         assert (not self.stereo and channels == 1) or (self.stereo and channels == 2), 'stereo needs to be set to True if passing in audio signal that is stereo (channel dimension of 2). also need to be False if mono (channel dimension of 1)'
 
         # to stft
@@ -466,9 +465,10 @@ class MelBandRoformer(Module):
 
         # need to average the estimated mask for the overlapped frequencies
 
-        scatter_indices = repeat(self.freq_indices, 'f -> b n f t', b = batch, n=num_stems, t = stft_repr.shape[-1])
+        scatter_indices = repeat(self.freq_indices, 'f -> b n f t', b = batch, n = num_stems, t = stft_repr.shape[-1])
 
-        masks_summed = torch.zeros_like(stft_repr.expand(-1, num_stems, -1, -1)).scatter_add_(2, scatter_indices, masks)
+        stft_repr_expanded_stems = repeat(stft_repr, 'b 1 ... -> b n ...', n = num_stems)
+        masks_summed = torch.zeros_like(stft_repr_expanded_stems).scatter_add_(2, scatter_indices, masks)
 
         denom = repeat(self.num_bands_per_freq, 'f -> (f r) 1', r = channels)
 
@@ -482,7 +482,7 @@ class MelBandRoformer(Module):
 
         stft_repr = rearrange(stft_repr, 'b n (f s) t -> (b n s) f t', s = self.audio_channels)
 
-        recon_audio = torch.istft(stft_repr, **self.stft_kwargs, return_complex = False, length=original_length)
+        recon_audio = torch.istft(stft_repr, **self.stft_kwargs, return_complex = False, length = istft_length)
 
         recon_audio = rearrange(recon_audio, '(b n s) t -> b n s t', b=batch, s = self.audio_channels, n = num_stems)
 
