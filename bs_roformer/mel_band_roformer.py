@@ -466,9 +466,9 @@ class MelBandRoformer(Module):
 
         # need to average the estimated mask for the overlapped frequencies
 
-        scatter_indices = repeat(self.freq_indices, 'f -> b 1 f t', b = batch, t = stft_repr.shape[-1])
+        scatter_indices = repeat(self.freq_indices, 'f -> b n f t', b = batch, n=num_stems, t = stft_repr.shape[-1])
 
-        masks_summed = torch.zeros_like(stft_repr).scatter_add_(2, scatter_indices, masks)
+        masks_summed = torch.zeros_like(stft_repr.expand(-1, num_stems, -1, -1)).scatter_add_(2, scatter_indices, masks)
 
         denom = repeat(self.num_bands_per_freq, 'f -> (f r) 1', r = channels)
 
@@ -484,7 +484,7 @@ class MelBandRoformer(Module):
 
         recon_audio = torch.istft(stft_repr, **self.stft_kwargs, return_complex = False, length=original_length)
 
-        recon_audio = rearrange(recon_audio, '(b n s) t -> b n s t', s = self.audio_channels, n = num_stems)
+        recon_audio = rearrange(recon_audio, '(b n s) t -> b n s t', b=batch, s = self.audio_channels, n = num_stems)
 
         if num_stems == 1:
             recon_audio = rearrange(recon_audio, 'b 1 s t -> b s t')
