@@ -20,6 +20,8 @@ Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord
 
 - <a href="https://github.com/ZFTurbo">Roman</a> for successfully training the model and open sourcing his training code and weights at <a href="https://github.com/ZFTurbo/Music-Source-Separation-Training">this repository</a>!
 
+- <a href="https://github.com/crlandsc">Christopher</a> for fixing an issue with multiple stems in MelBandRoFormer
+
 ## Install
 
 ```bash
