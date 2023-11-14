@@ -267,7 +267,8 @@ class MelBandRoformer(Module):
         multi_stft_resolution_loss_weight = 1.,
         multi_stft_resolutions_window_sizes: Tuple[int, ...] = (4096, 2048, 1024, 512, 256),
         multi_stft_hop_size = 147,
-        multi_stft_normalized = False
+        multi_stft_normalized = False,
+        match_input_audio_length = False, # if True, pad output tensor to match length of input tensor
     ):
         super().__init__()
 
@@ -372,6 +373,8 @@ class MelBandRoformer(Module):
             normalized = multi_stft_normalized
         )
 
+        self.match_input_audio_length = match_input_audio_length
+
     @property
     def device(self):
         return next(self.parameters()).device
@@ -396,6 +399,10 @@ class MelBandRoformer(Module):
 
         if raw_audio.ndim == 2:
             raw_audio = rearrange(raw_audio, 'b t -> b 1 t')
+
+        original_length = (
+            raw_audio.shape[-1] if self.match_input_audio_length else original_length
+        )
 
         batch, channels, *_ = raw_audio.shape
         assert (not self.stereo and channels == 1) or (self.stereo and channels == 2), 'stereo needs to be set to True if passing in audio signal that is stereo (channel dimension of 2). also need to be False if mono (channel dimension of 1)'
@@ -475,7 +482,7 @@ class MelBandRoformer(Module):
 
         stft_repr = rearrange(stft_repr, 'b n (f s) t -> (b n s) f t', s = self.audio_channels)
 
-        recon_audio = torch.istft(stft_repr, **self.stft_kwargs, return_complex = False)
+        recon_audio = torch.istft(stft_repr, **self.stft_kwargs, return_complex = False, length=original_length)
 
         recon_audio = rearrange(recon_audio, '(b n s) t -> b n s t', s = self.audio_channels, n = num_stems)
 
