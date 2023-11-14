@@ -188,7 +188,7 @@ def MLP(
     dim_hidden = default(dim_hidden, dim_in)
 
     net = []
-    dims = (dim_in, *((dim_hidden,) * (depth - 1)), dim_out)
+    dims = (dim_in, *((dim_hidden,) * depth), dim_out)
 
     for ind, (layer_dim_in, layer_dim_out) in enumerate(zip(dims[:-1], dims[1:])):
         is_last = ind == (len(dims) - 2)
@@ -263,7 +263,7 @@ class MelBandRoformer(Module):
         stft_hop_length = 512,   # 10ms at 44100Hz, from sections 4.1, 4.4 in the paper - @faroit recommends // 2 or // 4 for better reconstruction
         stft_win_length = 2048,
         stft_normalized = False,
-        mask_estimator_depth = 2,
+        mask_estimator_depth = 1, # Number of hidden layers in each of the mask estimator MLPs
         multi_stft_resolution_loss_weight = 1.,
         multi_stft_resolutions_window_sizes: Tuple[int, ...] = (4096, 2048, 1024, 512, 256),
         multi_stft_hop_size = 147,
