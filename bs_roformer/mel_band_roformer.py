@@ -188,7 +188,7 @@ def MLP(
     dim_hidden = default(dim_hidden, dim_in)
 
     net = []
-    dims = (dim_in, *((dim_hidden,) * (depth - 1)), dim_out)
+    dims = (dim_in, *((dim_hidden,) * depth), dim_out)
 
     for ind, (layer_dim_in, layer_dim_out) in enumerate(zip(dims[:-1], dims[1:])):
         is_last = ind == (len(dims) - 2)
@@ -263,11 +263,12 @@ class MelBandRoformer(Module):
         stft_hop_length = 512,   # 10ms at 44100Hz, from sections 4.1, 4.4 in the paper - @faroit recommends // 2 or // 4 for better reconstruction
         stft_win_length = 2048,
         stft_normalized = False,
-        mask_estimator_depth = 2,
+        mask_estimator_depth = 1, # Number of hidden layers in each of the mask estimator MLPs
         multi_stft_resolution_loss_weight = 1.,
         multi_stft_resolutions_window_sizes: Tuple[int, ...] = (4096, 2048, 1024, 512, 256),
         multi_stft_hop_size = 147,
-        multi_stft_normalized = False
+        multi_stft_normalized = False,
+        match_input_audio_length = False, # if True, pad output tensor to match length of input tensor
     ):
         super().__init__()
 
@@ -372,6 +373,8 @@ class MelBandRoformer(Module):
             normalized = multi_stft_normalized
         )
 
+        self.match_input_audio_length = match_input_audio_length
+
     @property
     def device(self):
         return next(self.parameters()).device
@@ -396,6 +399,10 @@ class MelBandRoformer(Module):
 
         if raw_audio.ndim == 2:
             raw_audio = rearrange(raw_audio, 'b t -> b 1 t')
+
+        original_length = (
+            raw_audio.shape[-1] if self.match_input_audio_length else original_length
+        )
 
         batch, channels, *_ = raw_audio.shape
         assert (not self.stereo and channels == 1) or (self.stereo and channels == 2), 'stereo needs to be set to True if passing in audio signal that is stereo (channel dimension of 2). also need to be False if mono (channel dimension of 1)'
@@ -459,9 +466,9 @@ class MelBandRoformer(Module):
 
         # need to average the estimated mask for the overlapped frequencies
 
-        scatter_indices = repeat(self.freq_indices, 'f -> b 1 f t', b = batch, t = stft_repr.shape[-1])
+        scatter_indices = repeat(self.freq_indices, 'f -> b n f t', b = batch, n=num_stems, t = stft_repr.shape[-1])
 
-        masks_summed = torch.zeros_like(stft_repr).scatter_add_(2, scatter_indices, masks)
+        masks_summed = torch.zeros_like(stft_repr.expand(-1, num_stems, -1, -1)).scatter_add_(2, scatter_indices, masks)
 
         denom = repeat(self.num_bands_per_freq, 'f -> (f r) 1', r = channels)
 
@@ -475,9 +482,9 @@ class MelBandRoformer(Module):
 
         stft_repr = rearrange(stft_repr, 'b n (f s) t -> (b n s) f t', s = self.audio_channels)
 
-        recon_audio = torch.istft(stft_repr, **self.stft_kwargs, return_complex = False)
+        recon_audio = torch.istft(stft_repr, **self.stft_kwargs, return_complex = False, length=original_length)
 
-        recon_audio = rearrange(recon_audio, '(b n s) t -> b n s t', s = self.audio_channels, n = num_stems)
+        recon_audio = rearrange(recon_audio, '(b n s) t -> b n s t', b=batch, s = self.audio_channels, n = num_stems)
 
         if num_stems == 1:
             recon_audio = rearrange(recon_audio, 'b 1 s t -> b s t')
