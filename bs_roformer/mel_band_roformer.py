@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 from bs_roformer.attend import Attend
 
-from beartype.typing import Tuple, Optional, List
+from beartype.typing import Tuple, Optional, List, Callable
 from beartype import beartype
 
 from rotary_embedding_torch import RotaryEmbedding
@@ -269,6 +269,7 @@ class MelBandRoformer(Module):
         multi_stft_resolutions_window_sizes: Tuple[int, ...] = (4096, 2048, 1024, 512, 256),
         multi_stft_hop_size = 147,
         multi_stft_normalized = False,
+        multi_stft_window_fn: Callable = torch.hann_window,
         match_input_audio_length = False, # if True, pad output tensor to match length of input tensor
     ):
         super().__init__()
@@ -369,6 +370,7 @@ class MelBandRoformer(Module):
         self.multi_stft_resolution_loss_weight = multi_stft_resolution_loss_weight
         self.multi_stft_resolutions_window_sizes = multi_stft_resolutions_window_sizes
         self.multi_stft_n_fft = stft_n_fft
+        self.multi_stft_window_fn = multi_stft_window_fn
 
         self.multi_stft_kwargs = dict(
             hop_length = multi_stft_hop_size,
@@ -514,6 +516,7 @@ class MelBandRoformer(Module):
                 n_fft = max(window_size, self.multi_stft_n_fft),  # not sure what n_fft is across multi resolution stft
                 win_length = window_size,
                 return_complex = True,
+                window = self.multi_stft_window_fn(window_size),
                 **self.multi_stft_kwargs,
             )
 
