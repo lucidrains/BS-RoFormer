@@ -266,6 +266,7 @@ class BSRoformer(Module):
         stft_hop_length = 512, # 10ms at 44100Hz, from sections 4.1, 4.4 in the paper - @faroit recommends // 2 or // 4 for better reconstruction
         stft_win_length = 2048,
         stft_normalized = False,
+        stft_window = None,
         mask_estimator_depth = 2,
         multi_stft_resolution_loss_weight = 1.,
         multi_stft_resolutions_window_sizes: Tuple[int, ...] = (4096, 2048, 1024, 512, 256),
@@ -305,7 +306,8 @@ class BSRoformer(Module):
             n_fft = stft_n_fft,
             hop_length = stft_hop_length,
             win_length = stft_win_length,
-            normalized = stft_normalized
+            normalized = stft_normalized,
+            window = default(stft_window, torch.hann_window(stft_win_length))
         )
 
         freqs = torch.stft(torch.randn(1, 4096), **self.stft_kwargs, return_complex = True).shape[1]
