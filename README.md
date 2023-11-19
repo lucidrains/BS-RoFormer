@@ -22,6 +22,8 @@ Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord
 
 - <a href="https://github.com/crlandsc">Christopher</a> for fixing an issue with multiple stems in Mel-Band Roformer
 
+- <a href="https://github.com/iver56">Iver Jordal</a> for identifying that the default stft window function is not correct
+
 ## Install
 
 ```bash
