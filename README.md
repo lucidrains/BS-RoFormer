@@ -8,6 +8,8 @@ It also includes support for stereo training and outputting multiple stems.
 
 Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord" src="https://img.shields.io/discord/823813159592001537?color=5865F2&logo=discord&logoColor=white"></a> if you are interested in replicating a SOTA music source separator out in the open
 
+Update: This paper has been replicated by <a href="https://github.com/ZFTurbo">Roman</a> and weight open sourced <a href="https://github.com/ZFTurbo/Music-Source-Separation-Training?tab=readme-ov-file#vocal-models">here</a>
+
 ## Appreciation
 
 - <a href="https://stability.ai/">StabilityAI</a> and <a href="https://huggingface.co/">🤗 Huggingface</a> for the generous sponsorship, as well as my other sponsors, for affording me the independence to open source artificial intelligence.
