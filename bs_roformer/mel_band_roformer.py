@@ -144,7 +144,7 @@ class LinearAttention(Module):
             Rearrange('b n (qkv h d) -> qkv b h d n', qkv = 3, h = heads)
         )
 
-        self.temperature = nn.Parameter(torch.ones(heads, 1, 1))
+        self.temperature = nn.Parameter(torch.zeros(heads, 1, 1))
 
         self.attend = Attend(
             scale = scale,
@@ -323,6 +323,7 @@ class MelBandRoformer(Module):
         attn_dropout = 0.1,
         ff_dropout = 0.1,
         flash_attn = True,
+        linear_flash_attn = None,
         dim_freqs_in = 1025,
         sample_rate = 44100,     # needed for mel filter bank from librosa
         stft_n_fft = 2048,
@@ -352,17 +353,18 @@ class MelBandRoformer(Module):
             dim_head = dim_head,
             attn_dropout = attn_dropout,
             ff_dropout = ff_dropout,
-            flash_attn = flash_attn
         )
 
         time_rotary_embed = RotaryEmbedding(dim = dim_head)
         freq_rotary_embed = RotaryEmbedding(dim = dim_head)
 
+        linear_flash_attn = default(linear_flash_attn, flash_attn)
+
         for _ in range(depth):
             self.layers.append(nn.ModuleList([
-                Transformer(depth = linear_transformer_depth, linear_attn = True, **transformer_kwargs) if linear_transformer_depth > 0 else None,
-                Transformer(depth = time_transformer_depth, rotary_embed = time_rotary_embed, **transformer_kwargs),
-                Transformer(depth = freq_transformer_depth, rotary_embed = freq_rotary_embed, **transformer_kwargs)
+                Transformer(depth = linear_transformer_depth, linear_attn = True, flash_attn = linear_flash_attn, **transformer_kwargs) if linear_transformer_depth > 0 else None,
+                Transformer(depth = time_transformer_depth, rotary_embed = time_rotary_embed, flash_attn = flash_attn, **transformer_kwargs),
+                Transformer(depth = freq_transformer_depth, rotary_embed = freq_rotary_embed, flash_attn = flash_attn, **transformer_kwargs)
             ]))
 
         self.stft_window_fn = partial(default(stft_window_fn, torch.hann_window), stft_win_length)
