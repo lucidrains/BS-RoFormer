@@ -10,6 +10,8 @@ Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord
 
 Update: This paper has been replicated by <a href="https://github.com/ZFTurbo">Roman</a> and weight open sourced <a href="https://github.com/ZFTurbo/Music-Source-Separation-Training?tab=readme-ov-file#vocal-models">here</a>
 
+Update 2: Used for <a href="https://www.youtube.com/watch?v=rboAdham380">this Katy Perry remix!</a>
+
 ## Appreciation
 
 - <a href="https://stability.ai/">StabilityAI</a> and <a href="https://huggingface.co/">🤗 Huggingface</a> for the generous sponsorship, as well as my other sponsors, for affording me the independence to open source artificial intelligence.
