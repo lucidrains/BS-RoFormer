@@ -12,6 +12,8 @@ Update: This paper has been replicated by <a href="https://github.com/ZFTurbo">R
 
 Update 2: Used for <a href="https://www.youtube.com/watch?v=rboAdham380">this Katy Perry remix!</a>
 
+Update 3: <a href="https://github.com/KimberleyJensen">Kimberley Jensen</a> has open sourced a MelBand Roformer trained on vocals <a href="https://github.com/KimberleyJensen/Mel-Band-Roformer-Vocal-Model">here</a>!
+
 ## Appreciation
 
 - <a href="https://stability.ai/">StabilityAI</a> and <a href="https://huggingface.co/">🤗 Huggingface</a> for the generous sponsorship, as well as my other sponsors, for affording me the independence to open source artificial intelligence.
