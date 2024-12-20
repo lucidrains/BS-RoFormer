@@ -1,3 +1,4 @@
+from __future__ import annotations
 from functools import partial
 
 import torch
@@ -7,7 +8,7 @@ import torch.nn.functional as F
 
 from bs_roformer.attend import Attend
 
-from beartype.typing import Tuple, Optional, List, Callable
+from beartype.typing import Callable
 from beartype import beartype
 
 from rotary_embedding_torch import RotaryEmbedding
@@ -219,7 +220,7 @@ class BandSplit(Module):
     def __init__(
         self,
         dim,
-        dim_inputs: Tuple[int, ...]
+        dim_inputs: tuple[int, ...]
     ):
         super().__init__()
         self.dim_inputs = dim_inputs
@@ -272,7 +273,7 @@ class MaskEstimator(Module):
     def __init__(
         self,
         dim,
-        dim_inputs: Tuple[int, ...],
+        dim_inputs: tuple[int, ...],
         depth,
         mlp_expansion_factor = 4
     ):
@@ -330,10 +331,10 @@ class MelBandRoformer(Module):
         stft_hop_length = 512,   # 10ms at 44100Hz, from sections 4.1, 4.4 in the paper - @faroit recommends // 2 or // 4 for better reconstruction
         stft_win_length = 2048,
         stft_normalized = False,
-        stft_window_fn: Optional[Callable] = None,
+        stft_window_fn: Callable | None = None,
         mask_estimator_depth = 1,
         multi_stft_resolution_loss_weight = 1.,
-        multi_stft_resolutions_window_sizes: Tuple[int, ...] = (4096, 2048, 1024, 512, 256),
+        multi_stft_resolutions_window_sizes: tuple[int, ...] = (4096, 2048, 1024, 512, 256),
         multi_stft_hop_size = 147,
         multi_stft_normalized = False,
         multi_stft_window_fn: Callable = torch.hann_window,
