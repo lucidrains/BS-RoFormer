@@ -100,7 +100,7 @@ class Attention(Module):
 
         q, k, v = rearrange(self.to_qkv(x), 'b n (qkv h d) -> qkv b h n d', qkv = 3, h = self.heads)
 
-        value_residual = v
+        orig_v = v
 
         if exists(self.to_value_residual_mix):
             mix = self.to_value_residual_mix(x)
@@ -120,7 +120,7 @@ class Attention(Module):
 
         out = rearrange(out, 'b h n d -> b n (h d)')
 
-        return self.to_out(out), value_residual
+        return self.to_out(out), orig_v
 
 class Transformer(Module):
     def __init__(
