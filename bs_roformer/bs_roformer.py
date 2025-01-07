@@ -15,6 +15,8 @@ from rotary_embedding_torch import RotaryEmbedding
 
 from einops import rearrange, pack, unpack
 
+from hyper_connections import get_init_and_expand_reduce_stream_functions
+
 # helper functions
 
 def exists(val):
@@ -136,15 +138,18 @@ class Transformer(Module):
         norm_output = True,
         rotary_embed = None,
         flash_attn = True,
-        add_value_residual = False
+        add_value_residual = False,
+        num_residual_streams = 1
     ):
         super().__init__()
         self.layers = ModuleList([])
 
+        init_hyper_conn, *_ = get_init_and_expand_reduce_stream_functions(num_residual_streams, disable = num_residual_streams == 1)
+
         for _ in range(depth):
             self.layers.append(ModuleList([
-                Attention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, rotary_embed = rotary_embed, flash = flash_attn, learned_value_residual_mix = add_value_residual),
-                FeedForward(dim = dim, mult = ff_mult, dropout = ff_dropout)
+                init_hyper_conn(dim = dim, branch = Attention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, rotary_embed = rotary_embed, flash = flash_attn, learned_value_residual_mix = add_value_residual)),
+                init_hyper_conn(dim = dim, branch = FeedForward(dim = dim, mult = ff_mult, dropout = ff_dropout))
             ]))
 
         self.norm = RMSNorm(dim) if norm_output else nn.Identity()
@@ -154,12 +159,11 @@ class Transformer(Module):
         first_values = None
 
         for attn, ff in self.layers:
-            attn_out, next_values = attn(x, value_residual = value_residual)
+            x, next_values = attn(x, value_residual = value_residual)
 
             first_values = default(first_values, next_values)
 
-            x = attn_out + x
-            x = ff(x) + x
+            x = ff(x)
 
         return self.norm(x), first_values
 
@@ -284,6 +288,7 @@ class BSRoformer(Module):
         attn_dropout = 0.,
         ff_dropout = 0.,
         flash_attn = True,
+        num_residual_streams = 4, # set to 1. to disable hyper connections
         dim_freqs_in = 1025,
         stft_n_fft = 2048,
         stft_hop_length = 512, # 10ms at 44100Hz, from sections 4.1, 4.4 in the paper - @faroit recommends // 2 or // 4 for better reconstruction
@@ -303,6 +308,8 @@ class BSRoformer(Module):
         self.audio_channels = 2 if stereo else 1
         self.num_stems = num_stems
 
+        _, self.expand_stream, self.reduce_stream = get_init_and_expand_reduce_stream_functions(num_residual_streams, disable = num_residual_streams == 1)
+
         self.layers = ModuleList([])
 
         transformer_kwargs = dict(
@@ -312,7 +319,8 @@ class BSRoformer(Module):
             attn_dropout = attn_dropout,
             ff_dropout = ff_dropout,
             flash_attn = flash_attn,
-            norm_output = False
+            num_residual_streams = num_residual_streams,
+            norm_output = False,
         )
 
         time_rotary_embed = RotaryEmbedding(dim = dim_head)
@@ -419,6 +427,10 @@ class BSRoformer(Module):
         time_v_residual = None
         freq_v_residual = None
 
+        # maybe expand residual streams
+
+        x = self.expand_stream(x)
+
         # axial / hierarchical attention
 
         for time_transformer, freq_transformer in self.layers:
@@ -439,6 +451,10 @@ class BSRoformer(Module):
             freq_v_residual = default(freq_v_residual, next_freq_v_residual)
 
             x, = unpack(x, ps, '* f d')
+
+        # maybe reduce residual streams
+
+        x = self.reduce_stream(x)
 
         x = self.final_norm(x)
 
