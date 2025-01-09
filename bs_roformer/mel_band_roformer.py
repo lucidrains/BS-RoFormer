@@ -18,6 +18,8 @@ from einops.layers.torch import Rearrange
 
 from librosa import filters
 
+from hyper_connections import get_init_and_expand_reduce_stream_functions
+
 # helper functions
 
 def exists(val):
@@ -82,7 +84,8 @@ class Attention(Module):
         dim_head = 64,
         dropout = 0.,
         rotary_embed = None,
-        flash = True
+        flash = True,
+        add_value_residual = False
     ):
         super().__init__()
         self.heads = heads
@@ -98,15 +101,28 @@ class Attention(Module):
 
         self.to_gates = nn.Linear(dim, heads)
 
+        self.learned_value_residual_mix = nn.Sequential(
+            nn.Linear(dim, heads),
+            Rearrange('b n h -> b h n 1'),
+            nn.Sigmoid()
+        ) if add_value_residual else None
+
         self.to_out = nn.Sequential(
             nn.Linear(dim_inner, dim, bias = False),
             nn.Dropout(dropout)
         )
 
-    def forward(self, x):
+    def forward(self, x, value_residual = None):
         x = self.norm(x)
 
         q, k, v = rearrange(self.to_qkv(x), 'b n (qkv h d) -> qkv b h n d', qkv = 3, h = self.heads)
+
+        orig_v = v
+
+        if exists(self.learned_value_residual_mix):
+            mix = self.learned_value_residual_mix(x)
+            assert exists(value_residual)
+            v = v.lerp(mix, value_residual)
 
         if exists(self.rotary_embed):
             q = self.rotary_embed.rotate_queries_or_keys(q)
@@ -118,7 +134,7 @@ class Attention(Module):
         out = out * rearrange(gates, 'b n h -> b h n 1').sigmoid()
 
         out = rearrange(out, 'b h n d -> b n (h d)')
-        return self.to_out(out)
+        return self.to_out(out), orig_v
 
 class LinearAttention(Module):
     """
@@ -134,7 +150,8 @@ class LinearAttention(Module):
         heads = 8,
         scale = 8,
         flash = False,
-        dropout = 0.
+        dropout = 0.,
+        add_value_residual = False
     ):
         super().__init__()
         dim_inner = dim_head * heads
@@ -153,6 +170,12 @@ class LinearAttention(Module):
             flash = flash
         )
 
+        self.learned_value_residual_mix = nn.Sequential(
+            nn.Linear(dim, heads),
+            Rearrange('b n h -> b h 1 n'),
+            nn.Sigmoid()
+        ) if add_value_residual else None
+
         self.to_out = nn.Sequential(
             Rearrange('b h d n -> b n (h d)'),
             nn.Linear(dim_inner, dim, bias = False)
@@ -160,18 +183,26 @@ class LinearAttention(Module):
 
     def forward(
         self,
-        x
+        x,
+        value_residual = None
     ):
         x = self.norm(x)
 
         q, k, v = self.to_qkv(x)
+
+        orig_v = v
+
+        if exists(self.learned_value_residual_mix):
+            mix = self.learned_value_residual_mix(x)
+            assert exists(value_residual)
+            v = v.lerp(mix, value_residual)
 
         q, k = map(l2norm, (q, k))
         q = q * self.temperature.exp()
 
         out = self.attend(q, k, v)
 
-        return self.to_out(out)
+        return self.to_out(out), orig_v
 
 class Transformer(Module):
     def __init__(
@@ -187,31 +218,43 @@ class Transformer(Module):
         norm_output = True,
         rotary_embed = None,
         flash_attn = True,
-        linear_attn = False
+        linear_attn = False,
+        add_value_residual = False,
+        num_residual_streams = 1
     ):
         super().__init__()
+
+        init_hyper_conn, *_ = get_init_and_expand_reduce_stream_functions(num_residual_streams, disable = num_residual_streams == 1)
+
         self.layers = ModuleList([])
 
         for _ in range(depth):
             if linear_attn:
-                attn = LinearAttention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, flash = flash_attn)
+                attn = LinearAttention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, flash = flash_attn, add_value_residual = add_value_residual)
             else:
-                attn = Attention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, rotary_embed = rotary_embed, flash = flash_attn)
+                attn = Attention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, rotary_embed = rotary_embed, flash = flash_attn, add_value_residual = add_value_residual)
+
+            ff = FeedForward(dim = dim, mult = ff_mult, dropout = ff_dropout)
 
             self.layers.append(ModuleList([
-                attn,
-                FeedForward(dim = dim, mult = ff_mult, dropout = ff_dropout)
+                init_hyper_conn(dim = dim, branch = attn),
+                init_hyper_conn(dim = dim, branch = ff)
             ]))
 
         self.norm = RMSNorm(dim) if norm_output else nn.Identity()
 
-    def forward(self, x):
+    def forward(self, x, value_residual = None):
+
+        first_values = None
 
         for attn, ff in self.layers:
-            x = attn(x) + x
-            x = ff(x) + x
 
-        return self.norm(x)
+            x, values = attn(x, value_residual = value_residual)
+            first_values = default(first_values, values)
+
+            x = ff(x)
+
+        return self.norm(x), first_values
 
 # bandsplit module
 
@@ -339,6 +382,8 @@ class MelBandRoformer(Module):
         multi_stft_normalized = False,
         multi_stft_window_fn: Callable = torch.hann_window,
         match_input_audio_length = False, # if True, pad output tensor to match length of input tensor
+        add_value_residual = True,
+        num_residual_streams = 4
     ):
         super().__init__()
 
@@ -354,6 +399,7 @@ class MelBandRoformer(Module):
             dim_head = dim_head,
             attn_dropout = attn_dropout,
             ff_dropout = ff_dropout,
+            num_residual_streams = num_residual_streams
         )
 
         time_rotary_embed = RotaryEmbedding(dim = dim_head)
@@ -361,11 +407,17 @@ class MelBandRoformer(Module):
 
         linear_flash_attn = default(linear_flash_attn, flash_attn)
 
-        for _ in range(depth):
+        # hyper connections
+
+        _, self.expand_streams, self.reduce_streams = get_init_and_expand_reduce_stream_functions(num_residual_streams, disable = num_residual_streams == 1)
+
+        for layer_index in range(depth):
+            is_first = layer_index == 0
+
             self.layers.append(nn.ModuleList([
-                Transformer(depth = linear_transformer_depth, linear_attn = True, flash_attn = linear_flash_attn, **transformer_kwargs) if linear_transformer_depth > 0 else None,
-                Transformer(depth = time_transformer_depth, rotary_embed = time_rotary_embed, flash_attn = flash_attn, **transformer_kwargs),
-                Transformer(depth = freq_transformer_depth, rotary_embed = freq_rotary_embed, flash_attn = flash_attn, **transformer_kwargs)
+                Transformer(depth = linear_transformer_depth, linear_attn = True, flash_attn = linear_flash_attn, add_value_residual = add_value_residual and not is_first, **transformer_kwargs) if linear_transformer_depth > 0 else None,
+                Transformer(depth = time_transformer_depth, rotary_embed = time_rotary_embed, flash_attn = flash_attn, add_value_residual = add_value_residual and not is_first, **transformer_kwargs),
+                Transformer(depth = freq_transformer_depth, rotary_embed = freq_rotary_embed, flash_attn = flash_attn, add_value_residual = add_value_residual and not is_first, **transformer_kwargs)
             ]))
 
         self.stft_window_fn = partial(default(stft_window_fn, torch.hann_window), stft_win_length)
@@ -506,27 +558,48 @@ class MelBandRoformer(Module):
 
         x = self.band_split(x)
 
+        # value residuals
+
+        linear_value_residual = None
+        time_value_residual = None
+        freq_value_residual = None
+
+        # expand residual streams (hyper connections)
+
+        x = self.expand_streams(x)
+
         # axial / hierarchical attention
 
         for linear_transformer, time_transformer, freq_transformer in self.layers:
 
             if exists(linear_transformer):
                 x, ft_ps = pack([x], 'b * d')
-                x = linear_transformer(x)
+
+                x, next_linear_values = linear_transformer(x, value_residual = linear_value_residual)
+                linear_value_residual = default(linear_value_residual, next_linear_values)
+
                 x, = unpack(x, ft_ps, 'b * d')
 
             x = rearrange(x, 'b t f d -> b f t d')
             x, ps = pack([x], '* t d')
 
-            x = time_transformer(x)
+            x, next_time_values = time_transformer(x, value_residual = time_value_residual)
+            time_value_residual = default(time_value_residual, next_time_values)
 
             x, = unpack(x, ps, '* t d')
             x = rearrange(x, 'b f t d -> b t f d')
             x, ps = pack([x], '* f d')
 
-            x = freq_transformer(x)
+            x, next_freq_values = freq_transformer(x, value_residual = freq_value_residual)
+            freq_value_residual = default(freq_value_residual, next_freq_values)
 
             x, = unpack(x, ps, '* f d')
+
+        # reduce residual streams
+
+        x = self.reduce_streams(x)
+
+        # mask estimators
 
         num_stems = len(self.mask_estimators)
 
