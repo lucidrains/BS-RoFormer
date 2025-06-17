@@ -225,7 +225,7 @@ class Transformer(Module):
     ):
         super().__init__()
 
-        init_hyper_conn, *_ = get_init_and_expand_reduce_stream_functions(num_residual_streams, num_fracs = num_residual_fracs, disable = num_residual_streams == 1 and num_residual_fracs == 1)
+        init_hyper_conn, *_ = get_init_and_expand_reduce_stream_functions(num_residual_streams, num_fracs = num_residual_fracs)
 
         self.layers = ModuleList([])
 
@@ -412,7 +412,7 @@ class MelBandRoformer(Module):
 
         # hyper connections
 
-        _, self.expand_streams, self.reduce_streams = get_init_and_expand_reduce_stream_functions(num_residual_streams, disable = num_residual_streams == 1)
+        _, self.expand_streams, self.reduce_streams = get_init_and_expand_reduce_stream_functions(num_residual_streams)
 
         for layer_index in range(depth):
             is_first = layer_index == 0

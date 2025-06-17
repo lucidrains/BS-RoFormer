@@ -145,7 +145,7 @@ class Transformer(Module):
         super().__init__()
         self.layers = ModuleList([])
 
-        init_hyper_conn, *_ = get_init_and_expand_reduce_stream_functions(num_residual_streams, num_fracs = num_residual_fracs, disable = num_residual_streams == 1 and num_residual_fracs == 1)
+        init_hyper_conn, *_ = get_init_and_expand_reduce_stream_functions(num_residual_streams, num_fracs = num_residual_fracs)
 
         for _ in range(depth):
             self.layers.append(ModuleList([
