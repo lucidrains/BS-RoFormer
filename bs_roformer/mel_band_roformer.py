@@ -220,11 +220,12 @@ class Transformer(Module):
         flash_attn = True,
         linear_attn = False,
         add_value_residual = False,
-        num_residual_streams = 1
+        num_residual_streams = 1,
+        num_residual_fracs = 1,
     ):
         super().__init__()
 
-        init_hyper_conn, *_ = get_init_and_expand_reduce_stream_functions(num_residual_streams, disable = num_residual_streams == 1)
+        init_hyper_conn, *_ = get_init_and_expand_reduce_stream_functions(num_residual_streams, num_fracs = num_residual_fracs, disable = num_residual_streams == 1 and num_residual_fracs == 1)
 
         self.layers = ModuleList([])
 
@@ -383,7 +384,8 @@ class MelBandRoformer(Module):
         multi_stft_window_fn: Callable = torch.hann_window,
         match_input_audio_length = False, # if True, pad output tensor to match length of input tensor
         add_value_residual = True,
-        num_residual_streams = 4
+        num_residual_streams = 4,
+        num_residual_fracs = 1
     ):
         super().__init__()
 
@@ -399,7 +401,8 @@ class MelBandRoformer(Module):
             dim_head = dim_head,
             attn_dropout = attn_dropout,
             ff_dropout = ff_dropout,
-            num_residual_streams = num_residual_streams
+            num_residual_streams = num_residual_streams,
+            num_residual_fracs = num_residual_fracs
         )
 
         time_rotary_embed = RotaryEmbedding(dim = dim_head)

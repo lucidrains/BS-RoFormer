@@ -139,12 +139,13 @@ class Transformer(Module):
         rotary_embed = None,
         flash_attn = True,
         add_value_residual = False,
-        num_residual_streams = 1
+        num_residual_streams = 1,
+        num_residual_fracs = 1
     ):
         super().__init__()
         self.layers = ModuleList([])
 
-        init_hyper_conn, *_ = get_init_and_expand_reduce_stream_functions(num_residual_streams, disable = num_residual_streams == 1)
+        init_hyper_conn, *_ = get_init_and_expand_reduce_stream_functions(num_residual_streams, num_fracs = num_residual_fracs, disable = num_residual_streams == 1 and num_residual_fracs == 1)
 
         for _ in range(depth):
             self.layers.append(ModuleList([
@@ -289,6 +290,7 @@ class BSRoformer(Module):
         ff_dropout = 0.,
         flash_attn = True,
         num_residual_streams = 4, # set to 1. to disable hyper connections
+        num_residual_fracs = 1,   # can be used as an alternative to residual streams for memory efficiency while retaining benefits of hyper connections
         dim_freqs_in = 1025,
         stft_n_fft = 2048,
         stft_hop_length = 512, # 10ms at 44100Hz, from sections 4.1, 4.4 in the paper - @faroit recommends // 2 or // 4 for better reconstruction
@@ -320,6 +322,7 @@ class BSRoformer(Module):
             ff_dropout = ff_dropout,
             flash_attn = flash_attn,
             num_residual_streams = num_residual_streams,
+            num_residual_fracs = num_residual_fracs,
             norm_output = False,
         )
 
