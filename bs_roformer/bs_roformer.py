@@ -284,6 +284,7 @@ class BSRoformer(Module):
         time_transformer_depth = 2,
         freq_transformer_depth = 2,
         freqs_per_bands: tuple[int, ...] = DEFAULT_FREQS_PER_BANDS,  # in the paper, they divide into ~60 bands, test with 1 for starters
+        freq_range: tuple[int, int] | None = None, # specifying a frequency range, with (<min freq>, <max freq). `-1` implies 0 and inf
         dim_head = 64,
         heads = 8,
         attn_dropout = 0.,
@@ -349,6 +350,26 @@ class BSRoformer(Module):
         self.stft_window_fn = partial(default(stft_window_fn, torch.hann_window), stft_win_length)
 
         freqs = torch.stft(torch.randn(1, 4096), **self.stft_kwargs, return_complex = True).shape[1]
+
+        # enforcing a frequency range
+
+        freq_range = default(freq_range, (-1, -1))
+        min_freq, max_freq = freq_range
+
+        min_freq = 0 if min_freq == -1 else min_freq
+        max_freq = freqs if max_freq == -1 else max_freq
+
+        assert min_freq >= 0 and max_freq <= freqs and min_freq < max_freq
+
+        self.min_freq = min_freq
+        self.max_freq = max_freq
+
+        self.freq_slice = slice(min_freq, max_freq)  # for slicing out the frequency for training
+        self.freq_pad = (min_freq, freqs - max_freq) # for reconstruction during istft
+
+        freqs = max_freq - min_freq
+
+        # some validation on freqs
 
         assert len(freqs_per_bands) > 1
         assert sum(freqs_per_bands) == freqs, f'the number of freqs in the bands must equal {freqs} based on the STFT settings, but got {sum(freqs_per_bands)}'
@@ -421,6 +442,8 @@ class BSRoformer(Module):
         stft_repr = unpack_one(stft_repr, batch_audio_channel_packed_shape, '* f t c')
         stft_repr = rearrange(stft_repr, 'b s f t c -> b (f s) t c') # merge stereo / mono into the frequency, with frequency leading dimension, for band splitting
 
+        stft_repr = stft_repr[:, self.freq_slice] # slice out frequency range
+
         x = rearrange(stft_repr, 'b f t c -> b t (f c)')
 
         x = self.band_split(x)
@@ -480,6 +503,8 @@ class BSRoformer(Module):
         # istft
 
         stft_repr = rearrange(stft_repr, 'b n (f s) t -> (b n s) f t', s = self.audio_channels)
+
+        stft_repr = F.pad(stft_repr, (0, 0, *self.freq_pad))
 
         recon_audio = torch.istft(stft_repr, **self.stft_kwargs, window = stft_window, return_complex = False)
 
