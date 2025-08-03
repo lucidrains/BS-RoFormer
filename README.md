@@ -30,6 +30,8 @@ Update 3: <a href="https://github.com/KimberleyJensen">Kimberley Jensen</a> has 
 
 - <a href="https://github.com/iver56">Iver Jordal</a> for identifying that the default stft window function is not correct
 
+- <a href="https://github.com/firebirdblue23">@firebirdblue23</a> for [suggested fixes](https://github.com/lucidrains/BS-RoFormer/issues/46) to MelBand Roformer
+
 ## Install
 
 ```bash
