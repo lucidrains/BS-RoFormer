@@ -2,7 +2,7 @@ from __future__ import annotations
 from functools import partial
 
 import torch
-from torch import nn, einsum, Tensor
+from torch import nn, einsum, tensor, Tensor
 from torch.nn import Module, ModuleList
 import torch.nn.functional as F
 
@@ -297,6 +297,7 @@ class BSRoformer(Module):
         stft_hop_length = 512, # 10ms at 44100Hz, from sections 4.1, 4.4 in the paper - @faroit recommends // 2 or // 4 for better reconstruction
         stft_win_length = 2048,
         stft_normalized = False,
+        zero_dc = False, # @firebirdblue23 in https://github.com/lucidrains/BS-RoFormer/issues/47
         stft_window_fn: Callable | None = None,
         mask_estimator_depth = 2,
         multi_stft_resolution_loss_weight = 1.,
@@ -391,6 +392,10 @@ class BSRoformer(Module):
             )
 
             self.mask_estimators.append(mask_estimator)
+
+        # whether to zero out dc
+
+        self.zero_dc = min_freq == 0 and zero_dc
 
         # for the multi-resolution stft loss
 
@@ -506,6 +511,10 @@ class BSRoformer(Module):
         stft_repr = rearrange(stft_repr, 'b n (f s) t -> (b n s) f t', s = self.audio_channels)
 
         stft_repr = F.pad(stft_repr, (0, 0, *self.freq_pad))
+
+        if self.zero_dc:
+            # whether to dc filter
+            stft_repr = stft_repr.index_fill(1, tensor(0, device = device), 0.)
 
         recon_audio = torch.istft(stft_repr, **self.stft_kwargs, window = stft_window, return_complex = False)
 
