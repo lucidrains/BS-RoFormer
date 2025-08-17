@@ -195,7 +195,7 @@ class LinearAttention(Module):
         if exists(self.learned_value_residual_mix):
             mix = self.learned_value_residual_mix(x)
             assert exists(value_residual)
-            v = v.lerp(mix, value_residual)
+            v = v.lerp(value_residual, mix)
 
         q, k = map(l2norm, (q, k))
         q = q * self.temperature.exp()
