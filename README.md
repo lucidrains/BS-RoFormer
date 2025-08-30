@@ -10,7 +10,7 @@ Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord
 
 Update: This paper has been replicated by <a href="https://github.com/ZFTurbo">Roman</a> and weight open sourced <a href="https://github.com/ZFTurbo/Music-Source-Separation-Training?tab=readme-ov-file#vocal-models">here</a>
 
-Update 2: Used for <a href="https://www.youtube.com/watch?v=rboAdham380">this Katy Perry remix!</a>
+Update 2: Used for <a href="https://www.youtube.com/watch?v=rboAdham380">this Katy Perry remix!</a> <a href="https://youtu.be/gj4KzEUqDIc">Hatsune Miku!</a>
 
 Update 3: <a href="https://github.com/KimberleyJensen">Kimberley Jensen</a> has open sourced a MelBand Roformer trained on vocals <a href="https://github.com/KimberleyJensen/Mel-Band-Roformer-Vocal-Model">here</a>!
 
