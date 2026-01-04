@@ -18,7 +18,7 @@ from einops.layers.torch import Rearrange
 
 from librosa import filters
 
-from hyper_connections import get_init_and_expand_reduce_stream_functions
+from hyper_connections import mc_get_init_and_expand_reduce_stream_functions
 
 # helper functions
 
@@ -222,10 +222,11 @@ class Transformer(Module):
         add_value_residual = False,
         num_residual_streams = 1,
         num_residual_fracs = 1,
+        mc_hyper_conn_sinkhorn_iters = 2
     ):
         super().__init__()
 
-        init_hyper_conn, *_ = get_init_and_expand_reduce_stream_functions(num_residual_streams, num_fracs = num_residual_fracs)
+        init_hyper_conn, *_ = mc_get_init_and_expand_reduce_stream_functions(num_residual_streams, num_fracs = num_residual_fracs, sinkhorn_iters = mc_hyper_conn_sinkhorn_iters)
 
         self.layers = ModuleList([])
 
