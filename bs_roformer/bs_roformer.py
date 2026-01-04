@@ -15,7 +15,7 @@ from rotary_embedding_torch import RotaryEmbedding
 
 from einops import rearrange, pack, unpack
 
-from hyper_connections import get_init_and_expand_reduce_stream_functions
+from hyper_connections import mc_get_init_and_expand_reduce_stream_functions
 
 # helper functions
 
@@ -140,12 +140,13 @@ class Transformer(Module):
         flash_attn = True,
         add_value_residual = False,
         num_residual_streams = 1,
-        num_residual_fracs = 1
+        num_residual_fracs = 1,
+        mc_hyper_conn_sinkhorn_iters = 2
     ):
         super().__init__()
         self.layers = ModuleList([])
 
-        init_hyper_conn, *_ = get_init_and_expand_reduce_stream_functions(num_residual_streams, num_fracs = num_residual_fracs)
+        init_hyper_conn, *_ = mc_get_init_and_expand_reduce_stream_functions(num_residual_streams, num_fracs = num_residual_fracs, sinkhorn_iters = mc_hyper_conn_sinkhorn_iters)
 
         for _ in range(depth):
             self.layers.append(ModuleList([
@@ -292,6 +293,7 @@ class BSRoformer(Module):
         flash_attn = True,
         num_residual_streams = 4, # set to 1. to disable hyper connections
         num_residual_fracs = 1,   # can be used as an alternative to residual streams for memory efficiency while retaining benefits of hyper connections
+        mc_hyper_conn_sinkhorn_iters = 2,
         dim_freqs_in = 1025,
         stft_n_fft = 2048,
         stft_hop_length = 512, # 10ms at 44100Hz, from sections 4.1, 4.4 in the paper - @faroit recommends // 2 or // 4 for better reconstruction
@@ -312,7 +314,7 @@ class BSRoformer(Module):
         self.audio_channels = 2 if stereo else 1
         self.num_stems = num_stems
 
-        _, self.expand_stream, self.reduce_stream = get_init_and_expand_reduce_stream_functions(num_residual_streams, disable = num_residual_streams == 1)
+        _, self.expand_stream, self.reduce_stream = mc_get_init_and_expand_reduce_stream_functions(num_residual_streams, disable = num_residual_streams == 1)
 
         self.layers = ModuleList([])
 
@@ -325,6 +327,7 @@ class BSRoformer(Module):
             flash_attn = flash_attn,
             num_residual_streams = num_residual_streams,
             num_residual_fracs = num_residual_fracs,
+            mc_hyper_conn_sinkhorn_iters = mc_hyper_conn_sinkhorn_iters
             norm_output = False,
         )
 
