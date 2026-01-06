@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
   name = 'BS-RoFormer',
   packages = find_packages(exclude=[]),
-  version = '1.0.3',
+  version = '1.0.4',
   license='MIT',
   description = 'BS-RoFormer - Band-Split Rotary Transformer for SOTA Music Source Separation',
   author = 'Phil Wang',
@@ -20,7 +20,7 @@ setup(
   install_requires=[
     'beartype',
     'einops>=0.8.0',
-    'hyper-connections>=0.3.7',
+    'hyper-connections>=0.3.11',
     'librosa',
     'rotary-embedding-torch>=0.3.6',
     'torch>=2.0',
