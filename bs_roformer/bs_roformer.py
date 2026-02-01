@@ -12,6 +12,7 @@ from beartype.typing import Callable
 from beartype import beartype
 
 from rotary_embedding_torch import RotaryEmbedding
+from PoPE_pytorch import PoPE, flash_attn_with_pope
 
 from einops import rearrange, pack, unpack
 
@@ -73,6 +74,7 @@ class Attention(Module):
         dim_head = 64,
         dropout = 0.,
         rotary_embed = None,
+        pope_embed = None,
         flash = True,
         learned_value_residual_mix = False
     ):
@@ -82,6 +84,9 @@ class Attention(Module):
         dim_inner = heads * dim_head
 
         self.rotary_embed = rotary_embed
+        self.pope_embed = pope_embed
+
+        assert not (exists(rotary_embed) and exists(pope_embed)), 'cannot have both rotary and pope embeddings'
 
         self.attend = Attend(flash = flash, dropout = dropout)
 
@@ -111,11 +116,14 @@ class Attention(Module):
             assert exists(value_residual)
             v = v.lerp(value_residual, mix)
 
-        if exists(self.rotary_embed):
+        if exists(self.pope_embed):
+            out = flash_attn_with_pope(q, k, v, pos_emb = self.pope_embed(q.shape[-2]), softmax_scale = self.scale)
+        elif exists(self.rotary_embed):
             q = self.rotary_embed.rotate_queries_or_keys(q)
             k = self.rotary_embed.rotate_queries_or_keys(k)
-
-        out = self.attend(q, k, v)
+            out = self.attend(q, k, v)
+        else:
+            out = self.attend(q, k, v)
 
         gates = self.to_gates(x)
         out = out * rearrange(gates, 'b n h -> b h n 1').sigmoid()
@@ -137,6 +145,7 @@ class Transformer(Module):
         ff_mult = 4,
         norm_output = True,
         rotary_embed = None,
+        pope_embed = None,
         flash_attn = True,
         add_value_residual = False,
         num_residual_streams = 1,
@@ -150,7 +159,7 @@ class Transformer(Module):
 
         for _ in range(depth):
             self.layers.append(ModuleList([
-                init_hyper_conn(dim = dim, branch = Attention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, rotary_embed = rotary_embed, flash = flash_attn, learned_value_residual_mix = add_value_residual)),
+                init_hyper_conn(dim = dim, branch = Attention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, rotary_embed = rotary_embed, pope_embed = pope_embed, flash = flash_attn, learned_value_residual_mix = add_value_residual)),
                 init_hyper_conn(dim = dim, branch = FeedForward(dim = dim, mult = ff_mult, dropout = ff_dropout))
             ]))
 
@@ -306,7 +315,8 @@ class BSRoformer(Module):
         multi_stft_resolutions_window_sizes: tuple[int, ...] = (4096, 2048, 1024, 512, 256),
         multi_stft_hop_size = 147,
         multi_stft_normalized = False,
-        multi_stft_window_fn: Callable = torch.hann_window
+        multi_stft_window_fn: Callable = torch.hann_window,
+        use_pope = False
     ):
         super().__init__()
 
@@ -328,18 +338,24 @@ class BSRoformer(Module):
             num_residual_streams = num_residual_streams,
             num_residual_fracs = num_residual_fracs,
             mc_hyper_conn_sinkhorn_iters = mc_hyper_conn_sinkhorn_iters,
-            norm_output = False,
+            norm_output = False
         )
 
-        time_rotary_embed = RotaryEmbedding(dim = dim_head)
-        freq_rotary_embed = RotaryEmbedding(dim = dim_head)
+        if use_pope:
+            time_pope_embed = PoPE(dim = dim_head, heads = heads)
+            freq_pope_embed = PoPE(dim = dim_head, heads = heads)
+            time_rotary_embed = freq_rotary_embed = None
+        else:
+            time_rotary_embed = RotaryEmbedding(dim = dim_head)
+            freq_rotary_embed = RotaryEmbedding(dim = dim_head)
+            time_pope_embed = freq_pope_embed = None
 
         for layer_index in range(depth):
             is_first = layer_index == 0
 
             self.layers.append(nn.ModuleList([
-                Transformer(depth = time_transformer_depth, rotary_embed = time_rotary_embed, add_value_residual = not is_first, **transformer_kwargs),
-                Transformer(depth = freq_transformer_depth, rotary_embed = freq_rotary_embed, add_value_residual = not is_first, **transformer_kwargs)
+                Transformer(depth = time_transformer_depth, rotary_embed = time_rotary_embed, pope_embed = time_pope_embed, add_value_residual = not is_first, **transformer_kwargs),
+                Transformer(depth = freq_transformer_depth, rotary_embed = freq_rotary_embed, pope_embed = freq_pope_embed, add_value_residual = not is_first, **transformer_kwargs)
             ]))
 
         self.final_norm = RMSNorm(dim)
