@@ -48,7 +48,8 @@ model = BSRoformer(
     dim = 512,
     depth = 12,
     time_transformer_depth = 1,
-    freq_transformer_depth = 1
+    freq_transformer_depth = 1,
+    use_pope = False # turn this on to try a successor to rotary embeddings
 )
 
 x = torch.randn(2, 352800)
@@ -72,7 +73,8 @@ model = MelBandRoformer(
     dim = 32,
     depth = 1,
     time_transformer_depth = 1,
-    freq_transformer_depth = 1
+    freq_transformer_depth = 1,
+    use_pope = False # turn this on to try a successor to rotary embeddings
 )
 
 x = torch.randn(2, 352800)
@@ -168,5 +170,17 @@ out = model(x)
     author  = {Zhanchao Zhou and Tianyi Wu and Zhiyun Jiang and Zhenzhong Lan},
     year    = {2024},
     url     = {https://api.semanticscholar.org/CorpusID:273532030}
+}
+```
+
+```bibtex
+@misc{gopalakrishnan2025decouplingwhatwherepolar,
+    title   = {Decoupling the "What" and "Where" With Polar Coordinate Positional Embeddings}, 
+    author  = {Anand Gopalakrishnan and Robert Csordás and Jürgen Schmidhuber and Michael C. Mozer},
+    year    = {2025},
+    eprint  = {2509.10534},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.LG},
+    url     = {https://arxiv.org/abs/2509.10534}, 
 }
 ```
