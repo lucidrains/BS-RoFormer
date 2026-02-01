@@ -22,6 +22,7 @@ setup(
     'einops>=0.8.0',
     'hyper-connections>=0.4.4',
     'librosa',
+    'PoPE-pytorch>=0.0.15',
     'rotary-embedding-torch>=0.3.6',
     'torch>=2.0',
   ],
