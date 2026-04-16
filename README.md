@@ -35,7 +35,7 @@ Update 3: <a href="https://github.com/KimberleyJensen">Kimberley Jensen</a> has 
 ## Install
 
 ```bash
-$ pip install BS-RoFormer
+pip install BS-RoFormer
 ```
 
 ## Usage
@@ -115,31 +115,37 @@ out = model(x)
 ```
 
 ```bibtex
-@misc{ho2019axial,
-    title  = {Axial Attention in Multidimensional Transformers},
-    author = {Jonathan Ho and Nal Kalchbrenner and Dirk Weissenborn and Tim Salimans},
-    year   = {2019},
-    archivePrefix = {arXiv}
+@article{Ho2019AxialAI,
+  title={Axial Attention in Multidimensional Transformers},
+  author={Jonathan Ho and Nal Kalchbrenner and Dirk Weissenborn and Tim Salimans},
+  journal={ArXiv},
+  year={2019},
+  volume={abs/1912.12180},
+  url={https://api.semanticscholar.org/CorpusID:209323787}
 }
 ```
 
 ```bibtex
-@misc{su2021roformer,
-    title   = {RoFormer: Enhanced Transformer with Rotary Position Embedding},
-    author  = {Jianlin Su and Yu Lu and Shengfeng Pan and Bo Wen and Yunfeng Liu},
-    year    = {2021},
-    eprint  = {2104.09864},
-    archivePrefix = {arXiv},
-    primaryClass = {cs.CL}
+@misc{su2023roformerenhancedtransformerrotary,
+      title={RoFormer: Enhanced Transformer with Rotary Position Embedding},
+      author={Jianlin Su and Yu Lu and Shengfeng Pan and Ahmed Murtadha and Bo Wen and Yunfeng Liu},
+      year={2023},
+      eprint={2104.09864},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2104.09864},
 }
 ```
 
 ```bibtex
-@inproceedings{dao2022flashattention,
-    title   = {Flash{A}ttention: Fast and Memory-Efficient Exact Attention with {IO}-Awareness},
-    author  = {Dao, Tri and Fu, Daniel Y. and Ermon, Stefano and Rudra, Atri and R{\'e}, Christopher},
-    booktitle = {Advances in Neural Information Processing Systems},
-    year    = {2022}
+@misc{dao2022flashattentionfastmemoryefficientexact,
+      title={FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness},
+      author={Tri Dao and Daniel Y. Fu and Stefano Ermon and Atri Rudra and Christopher Ré},
+      year={2022},
+      eprint={2205.14135},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2205.14135},
 }
 ```
 
@@ -175,12 +181,12 @@ out = model(x)
 
 ```bibtex
 @misc{gopalakrishnan2025decouplingwhatwherepolar,
-    title   = {Decoupling the "What" and "Where" With Polar Coordinate Positional Embeddings}, 
+    title   = {Decoupling the "What" and "Where" With Polar Coordinate Positional Embeddings},
     author  = {Anand Gopalakrishnan and Robert Csordás and Jürgen Schmidhuber and Michael C. Mozer},
     year    = {2025},
     eprint  = {2509.10534},
     archivePrefix = {arXiv},
     primaryClass = {cs.LG},
-    url     = {https://arxiv.org/abs/2509.10534}, 
+    url     = {https://arxiv.org/abs/2509.10534},
 }
 ```

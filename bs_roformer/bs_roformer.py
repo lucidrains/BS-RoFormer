@@ -2,7 +2,7 @@ from __future__ import annotations
 from functools import partial
 
 import torch
-from torch import nn, einsum, tensor, Tensor
+from torch import nn, tensor
 from torch.nn import Module, ModuleList
 import torch.nn.functional as F
 
@@ -86,16 +86,16 @@ class Attention(Module):
         self.rotary_embed = rotary_embed
         self.pope_embed = pope_embed
 
-        assert not (exists(rotary_embed) and exists(pope_embed)), 'cannot have both rotary and pope embeddings'
+        assert not (exists(self.rotary_embed) and exists(self.pope_embed)), 'cannot have both rotary and pope embeddings'
 
         self.attend = Attend(flash = flash, dropout = dropout)
 
         self.norm = RMSNorm(dim)
         self.to_qkv = nn.Linear(dim, dim_inner * 3, bias = False)
 
-        self.to_value_residual_mix = nn.Linear(dim, heads) if learned_value_residual_mix else None
+        self.to_value_residual_mix = nn.Linear(dim, self.heads) if learned_value_residual_mix else None
 
-        self.to_gates = nn.Linear(dim, heads)
+        self.to_gates = nn.Linear(dim, self.heads)
 
         self.to_out = nn.Sequential(
             nn.Linear(dim_inner, dim, bias = False),
@@ -191,7 +191,7 @@ class BandSplit(Module):
         self.dim_inputs = dim_inputs
         self.to_features = ModuleList([])
 
-        for dim_in in dim_inputs:
+        for dim_in in self.dim_inputs:
             net = nn.Sequential(
                 RMSNorm(dim_in),
                 nn.Linear(dim_in, dim)
@@ -247,7 +247,7 @@ class MaskEstimator(Module):
         self.to_freqs = ModuleList([])
         dim_hidden = dim * mlp_expansion_factor
 
-        for dim_in in dim_inputs:
+        for dim_in in self.dim_inputs:
             net = []
 
             mlp = nn.Sequential(
@@ -321,7 +321,7 @@ class BSRoformer(Module):
         super().__init__()
 
         self.stereo = stereo
-        self.audio_channels = 2 if stereo else 1
+        self.audio_channels = 2 if self.stereo else 1
         self.num_stems = num_stems
 
         _, self.expand_stream, self.reduce_stream = mc_get_init_and_expand_reduce_stream_functions(num_residual_streams, disable = num_residual_streams == 1)
@@ -403,7 +403,7 @@ class BSRoformer(Module):
 
         self.mask_estimators = nn.ModuleList([])
 
-        for _ in range(num_stems):
+        for _ in range(self.num_stems):
             mask_estimator = MaskEstimator(
                 dim = dim,
                 dim_inputs = freqs_per_bands_with_complex,
@@ -464,7 +464,7 @@ class BSRoformer(Module):
         stft_repr = torch.view_as_real(stft_repr)
 
         stft_repr = unpack_one(stft_repr, batch_audio_channel_packed_shape, '* f t c')
-        
+
         stft_repr = stft_repr[:, :, self.freq_slice] # slice out frequency range
 
         stft_repr = rearrange(stft_repr, 'b s f t c -> b (f s) t c') # merge stereo / mono into the frequency, with frequency leading dimension, for band splitting
@@ -549,7 +549,7 @@ class BSRoformer(Module):
 
         if self.num_stems > 1:
             assert target.ndim == 4 and target.shape[1] == self.num_stems
-        
+
         if target.ndim == 2:
             target = rearrange(target, '... t -> ... 1 t')
 
