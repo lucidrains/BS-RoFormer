@@ -2,7 +2,7 @@ from __future__ import annotations
 from functools import partial
 
 import torch
-from torch import nn, einsum, tensor, Tensor
+from torch import nn, tensor
 from torch.nn import Module, ModuleList
 import torch.nn.functional as F
 
@@ -97,17 +97,17 @@ class Attention(Module):
         self.rotary_embed = rotary_embed
         self.pope_embed = pope_embed
 
-        assert not (exists(rotary_embed) and exists(pope_embed)), 'cannot have both rotary and pope embeddings'
+        assert not (exists(self.rotary_embed) and exists(self.pope_embed)), 'cannot have both rotary and pope embeddings'
 
         self.attend = Attend(flash = flash, dropout = dropout)
 
         self.norm = RMSNorm(dim)
         self.to_qkv = nn.Linear(dim, dim_inner * 3, bias = False)
 
-        self.to_gates = nn.Linear(dim, heads)
+        self.to_gates = nn.Linear(dim, self.heads)
 
         self.learned_value_residual_mix = nn.Sequential(
-            nn.Linear(dim, heads),
+            nn.Linear(dim, self.heads),
             Rearrange('b n h -> b h n 1'),
             nn.Sigmoid()
         ) if add_value_residual else None
@@ -127,7 +127,7 @@ class Attention(Module):
         if exists(self.learned_value_residual_mix):
             mix = self.learned_value_residual_mix(x)
             assert exists(value_residual)
-            v = v.lerp(mix, value_residual)
+            v = v.lerp(value_residual, mix)
 
         if exists(self.pope_embed):
             out = flash_attn_with_pope(q, k, v, pos_emb = self.pope_embed(q.shape[-2]), softmax_scale = self.scale)
@@ -280,7 +280,7 @@ class BandSplit(Module):
         self.dim_inputs = dim_inputs
         self.to_features = ModuleList([])
 
-        for dim_in in dim_inputs:
+        for dim_in in self.dim_inputs:
             net = nn.Sequential(
                 RMSNorm(dim_in),
                 nn.Linear(dim_in, dim)
@@ -336,7 +336,7 @@ class MaskEstimator(Module):
         self.to_freqs = ModuleList([])
         dim_hidden = dim * mlp_expansion_factor
 
-        for dim_in in dim_inputs:
+        for dim_in in self.dim_inputs:
             net = []
 
             mlp = nn.Sequential(
@@ -402,7 +402,7 @@ class MelBandRoformer(Module):
         super().__init__()
 
         self.stereo = stereo
-        self.audio_channels = 2 if stereo else 1
+        self.audio_channels = 2 if self.stereo else 1
         self.num_stems = num_stems
 
         self.layers = ModuleList([])
@@ -458,7 +458,7 @@ class MelBandRoformer(Module):
         mel_filter_bank_numpy = filters.mel(sr = sample_rate, n_fft = stft_n_fft, n_mels = num_bands)
 
         mel_filter_bank = torch.from_numpy(mel_filter_bank_numpy)
-    
+
         # following suggestions from @firebirdblue23
 
         mel_filter_bank[0, 0] = mel_filter_bank[0, 1] * 0.25
@@ -472,7 +472,7 @@ class MelBandRoformer(Module):
         repeated_freq_indices = repeat(torch.arange(freqs), 'f -> b f', b = num_bands)
         freq_indices = repeated_freq_indices[freqs_per_band]
 
-        if stereo:
+        if self.stereo:
             freq_indices = repeat(freq_indices, 'f -> f s', s = 2)
             freq_indices = freq_indices * 2 + torch.arange(2)
             freq_indices = rearrange(freq_indices, 'f s -> (f s)')
@@ -497,7 +497,7 @@ class MelBandRoformer(Module):
 
         self.mask_estimators = nn.ModuleList([])
 
-        for _ in range(num_stems):
+        for _ in range(self.num_stems):
             mask_estimator = MaskEstimator(
                 dim = dim,
                 dim_inputs = freqs_per_bands_with_complex,
@@ -672,7 +672,7 @@ class MelBandRoformer(Module):
 
         if self.num_stems > 1:
             assert target.ndim == 4 and target.shape[1] == self.num_stems
-        
+
         if target.ndim == 2:
             target = rearrange(target, '... t -> ... 1 t')
 

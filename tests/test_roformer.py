@@ -1,7 +1,6 @@
 import torch
 import pytest
 from bs_roformer import BSRoformer, MelBandRoformer
-from PoPE_pytorch import PoPE
 
 @pytest.mark.parametrize('use_pope', [True, False])
 def test_bs_roformer(use_pope):
