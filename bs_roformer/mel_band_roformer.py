@@ -458,7 +458,7 @@ class MelBandRoformer(Module):
         mel_filter_bank_numpy = filters.mel(sr = sample_rate, n_fft = stft_n_fft, n_mels = num_bands)
 
         mel_filter_bank = torch.from_numpy(mel_filter_bank_numpy)
-    
+
         # following suggestions from @firebirdblue23
 
         mel_filter_bank[0, 0] = mel_filter_bank[0, 1] * 0.25
@@ -672,7 +672,7 @@ class MelBandRoformer(Module):
 
         if self.num_stems > 1:
             assert target.ndim == 4 and target.shape[1] == self.num_stems
-        
+
         if target.ndim == 2:
             target = rearrange(target, '... t -> ... 1 t')
 

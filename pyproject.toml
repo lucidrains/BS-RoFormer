@@ -1,0 +1,72 @@
+[project]
+name = "BS-RoFormer"
+version = "1.2.0"
+description = "BS-RoFormer - Band-Split Rotary Transformer for SOTA Music Source Separation"
+authors = [
+    { name = "Phil Wang", email = "lucidrains@gmail.com" }
+]
+readme = "README.md"
+requires-python = ">= 3.6"
+license = { text = "MIT" }
+keywords = [
+    "artificial intelligence",
+    "deep learning",
+    "transformers",
+    "attention mechanism",
+    "music source separation"
+]
+
+classifiers=[
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.6",
+]
+
+dependencies = [
+    "beartype",
+    "einops>=0.8.0",
+    "hyper-connections>=0.4.4",
+    "librosa",
+    "PoPE-pytorch>=0.0.15",
+    "rotary-embedding-torch>=0.3.6",
+    "torch>=2.0",
+    "torch-einops-utils>=0.1.2"
+]
+
+[project.urls]
+Homepage = "https://pypi.org/project/BS-RoFormer/"
+Repository = "https://github.com/lucidrains/BS-RoFormer"
+
+[project.optional-dependencies]
+examples = []
+test = [
+    "pytest"
+]
+
+[tool.pytest.ini_options]
+pythonpath = [
+    "."
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.rye]
+managed = true
+dev-dependencies = []
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build]
+include = [
+    "bs_roformer",
+    "pyproject.toml",
+    "README.md"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["bs_roformer"]

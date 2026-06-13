@@ -464,7 +464,7 @@ class BSRoformer(Module):
         stft_repr = torch.view_as_real(stft_repr)
 
         stft_repr = unpack_one(stft_repr, batch_audio_channel_packed_shape, '* f t c')
-        
+
         stft_repr = stft_repr[:, :, self.freq_slice] # slice out frequency range
 
         stft_repr = rearrange(stft_repr, 'b s f t c -> b (f s) t c') # merge stereo / mono into the frequency, with frequency leading dimension, for band splitting
@@ -549,7 +549,7 @@ class BSRoformer(Module):
 
         if self.num_stems > 1:
             assert target.ndim == 4 and target.shape[1] == self.num_stems
-        
+
         if target.ndim == 2:
             target = rearrange(target, '... t -> ... 1 t')
 

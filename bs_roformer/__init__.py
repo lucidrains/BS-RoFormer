@@ -1,2 +1,3 @@
 from bs_roformer.bs_roformer import BSRoformer
 from bs_roformer.mel_band_roformer import MelBandRoformer
+from bs_roformer.flow_bs_roformer import FlowBSRoformer

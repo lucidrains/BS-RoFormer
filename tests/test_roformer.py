@@ -28,3 +28,23 @@ def test_mel_band_roformer(use_pope):
 
     inp = torch.randn(1, 1, 35280)
     out = model(inp)
+
+@pytest.mark.parametrize('use_pope', [True, False])
+def test_flow_bs_roformer(use_pope):
+    from bs_roformer.flow_bs_roformer import FlowBSRoformer
+
+    model = FlowBSRoformer(
+        dim = 32,
+        depth = 1,
+        time_transformer_depth = 1,
+        freq_transformer_depth = 1,
+        use_pope = use_pope
+    )
+
+    inp = torch.randn(1, 35280)
+    target = torch.randn(1, 35280)
+    loss = model(inp, target=target)
+    loss.backward()
+
+    out = model.sample(inp)
+    assert out.shape == (1, 1, 35280)

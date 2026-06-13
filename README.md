@@ -88,6 +88,30 @@ loss.backward()
 out = model(x)
 ```
 
+You can also use a Flow-Matching variant of the BS-Roformer, `FlowBSRoformer`, which replaces masking with predicting the flow between pure noise and the target audio.
+
+```python
+import torch
+from bs_roformer import FlowBSRoformer
+
+model = FlowBSRoformer(
+    dim = 512,
+    depth = 12,
+    time_transformer_depth = 1,
+    freq_transformer_depth = 1
+)
+
+x = torch.randn(2, 352800)
+target = torch.randn(2, 352800)
+
+loss = model(x, target = target)
+loss.backward()
+
+# after much training
+
+out = model.sample(x)
+```
+
 ## Todo
 
 - [x] get the multiscale stft loss in there
@@ -175,12 +199,24 @@ out = model(x)
 
 ```bibtex
 @misc{gopalakrishnan2025decouplingwhatwherepolar,
-    title   = {Decoupling the "What" and "Where" With Polar Coordinate Positional Embeddings}, 
+    title   = {Decoupling the "What" and "Where" With Polar Coordinate Positional Embeddings},
     author  = {Anand Gopalakrishnan and Robert Csordás and Jürgen Schmidhuber and Michael C. Mozer},
     year    = {2025},
     eprint  = {2509.10534},
     archivePrefix = {arXiv},
     primaryClass = {cs.LG},
-    url     = {https://arxiv.org/abs/2509.10534}, 
+    url     = {https://arxiv.org/abs/2509.10534},
+}
+```
+
+```bibtex
+@misc{li2025basicsletdenoisinggenerative,
+    title   = {Back to Basics: Let Denoising Generative Models Denoise},
+    author  = {Tianhong Li and Kaiming He},
+    year    = {2025},
+    eprint  = {2511.13720},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.CV},
+    url     = {https://arxiv.org/abs/2511.13720},
 }
 ```
