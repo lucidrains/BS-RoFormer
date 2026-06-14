@@ -1,9 +1,10 @@
 from __future__ import annotations
+import math
 from functools import partial
 
 import torch
-from torch import nn, einsum, tensor, Tensor
-from torch.nn import Module, ModuleList
+from torch import nn, einsum, tensor, Tensor, cat
+from torch.nn import Module, ModuleList, Linear
 import torch.nn.functional as F
 
 from bs_roformer.attend import Attend
@@ -14,10 +15,11 @@ from beartype import beartype
 from rotary_embedding_torch import RotaryEmbedding
 from PoPE_pytorch import PoPE, flash_attn_with_pope
 
-from einops import rearrange
+import einx
+from einops import rearrange, repeat, reduce
 
 from hyper_connections import mc_get_init_and_expand_reduce_stream_functions
-from torch_einops_utils import pad_right_ndim_to, pack_with_inverse
+from torch_einops_utils import pad_right_ndim_to, pack_with_inverse, tree_flatten_with_inverse
 
 # helper functions
 
@@ -36,10 +38,63 @@ class RMSNorm(Module):
     def __init__(self, dim):
         super().__init__()
         self.scale = dim ** 0.5
-        self.gamma = nn.Parameter(torch.ones(dim))
 
     def forward(self, x):
-        return F.normalize(x, dim = -1) * self.scale * self.gamma
+        return F.normalize(x, dim = -1) * self.scale
+
+class AdaLN(Module):
+    def __init__(
+        self,
+        dim,
+        time_cond_dim,
+        branch,
+        weight_init_std = 1e-3
+    ):
+        super().__init__()
+        self.branch = branch
+        self.norm = RMSNorm(dim)
+
+        self.time_cond_dim = time_cond_dim
+
+        if not exists(time_cond_dim):
+            return
+
+        self.to_gamma_beta_gate = Linear(time_cond_dim, dim * 3)
+
+        # init
+
+        nn.init.zeros_(self.to_gamma_beta_gate.weight)
+        nn.init.normal_(self.to_gamma_beta_gate.weight[dim * 2:], std = weight_init_std) # https://openreview.net/forum?id=vE66hG5t1W
+        nn.init.zeros_(self.to_gamma_beta_gate.bias)
+
+    def forward(
+        self,
+        x,
+        time_cond = None,
+        **kwargs
+    ):
+        if not exists(self.time_cond_dim):
+            return self.branch(self.norm(x), **kwargs)
+
+        assert exists(time_cond)
+
+        b, n = time_cond.shape[0], x.shape[0] // time_cond.shape[0]
+
+        x = self.norm(x)
+
+        gamma, beta, gate = self.to_gamma_beta_gate(time_cond).chunk(3, dim = -1)
+        gamma, beta, gate = (repeat(t, 'b d -> (b n) 1 d', n = n) for t in (gamma, beta, gate))
+
+        x = x * (gamma + 1) + beta
+
+        out = self.branch(x, **kwargs)
+
+        flat_out, pack_inverse = tree_flatten_with_inverse(out)
+        out, *rest = flat_out
+
+        out = out * gate.sigmoid()
+
+        return pack_inverse((out, *rest))
 
 # attention
 
@@ -52,12 +107,12 @@ class FeedForward(Module):
     ):
         super().__init__()
         dim_inner = int(dim * mult)
+
         self.net = nn.Sequential(
-            RMSNorm(dim),
-            nn.Linear(dim, dim_inner),
+            Linear(dim, dim_inner),
             nn.GELU(),
             nn.Dropout(dropout),
-            nn.Linear(dim_inner, dim),
+            Linear(dim_inner, dim),
             nn.Dropout(dropout)
         )
 
@@ -88,21 +143,18 @@ class Attention(Module):
 
         self.attend = Attend(flash = flash, dropout = dropout)
 
-        self.norm = RMSNorm(dim)
-        self.to_qkv = nn.Linear(dim, dim_inner * 3, bias = False)
+        self.to_qkv = Linear(dim, dim_inner * 3, bias = False)
 
-        self.to_value_residual_mix = nn.Linear(dim, heads) if learned_value_residual_mix else None
+        self.to_value_residual_mix = Linear(dim, heads) if learned_value_residual_mix else None
 
-        self.to_gates = nn.Linear(dim, heads)
+        self.to_gates = Linear(dim, heads)
 
         self.to_out = nn.Sequential(
-            nn.Linear(dim_inner, dim, bias = False),
+            Linear(dim_inner, dim, bias = False),
             nn.Dropout(dropout)
         )
 
     def forward(self, x, value_residual = None):
-        x = self.norm(x)
-
         q, k, v = rearrange(self.to_qkv(x), 'b n (qkv h d) -> qkv b h n d', qkv = 3, h = self.heads)
 
         orig_v = v
@@ -148,7 +200,8 @@ class Transformer(Module):
         add_value_residual = False,
         num_residual_streams = 1,
         num_residual_fracs = 1,
-        mc_hyper_conn_sinkhorn_iters = 2
+        mc_hyper_conn_sinkhorn_iters = 2,
+        time_cond_dim = None
     ):
         super().__init__()
         self.layers = ModuleList([])
@@ -157,22 +210,22 @@ class Transformer(Module):
 
         for _ in range(depth):
             self.layers.append(ModuleList([
-                init_hyper_conn(dim = dim, branch = Attention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, rotary_embed = rotary_embed, pope_embed = pope_embed, flash = flash_attn, learned_value_residual_mix = add_value_residual)),
-                init_hyper_conn(dim = dim, branch = FeedForward(dim = dim, mult = ff_mult, dropout = ff_dropout))
+                init_hyper_conn(dim = dim, branch = AdaLN(dim, time_cond_dim, Attention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, rotary_embed = rotary_embed, pope_embed = pope_embed, flash = flash_attn, learned_value_residual_mix = add_value_residual))),
+                init_hyper_conn(dim = dim, branch = AdaLN(dim, time_cond_dim, FeedForward(dim = dim, mult = ff_mult, dropout = ff_dropout)))
             ]))
 
         self.norm = RMSNorm(dim) if norm_output else nn.Identity()
 
-    def forward(self, x, value_residual = None):
+    def forward(self, x, value_residual = None, time_cond = None):
 
         first_values = None
 
         for attn, ff in self.layers:
-            x, next_values = attn(x, value_residual = value_residual)
+            x, next_values = attn(x, value_residual = value_residual, time_cond = time_cond)
 
             first_values = default(first_values, next_values)
 
-            x = ff(x)
+            x = ff(x, time_cond = time_cond)
 
         return self.norm(x), first_values
 
@@ -192,7 +245,7 @@ class BandSplit(Module):
         for dim_in in dim_inputs:
             net = nn.Sequential(
                 RMSNorm(dim_in),
-                nn.Linear(dim_in, dim)
+                Linear(dim_in, dim)
             )
 
             self.to_features.append(net)
@@ -222,7 +275,7 @@ def MLP(
     for ind, (layer_dim_in, layer_dim_out) in enumerate(zip(dims[:-1], dims[1:])):
         is_last = ind == (len(dims) - 2)
 
-        net.append(nn.Linear(layer_dim_in, layer_dim_out))
+        net.append(Linear(layer_dim_in, layer_dim_out))
 
         if is_last:
             continue
@@ -264,7 +317,20 @@ class STFTEstimator(Module):
             freq_out = mlp(band_features)
             outs.append(freq_out)
 
-        return torch.cat(outs, dim = -1)
+        return cat(outs, dim = -1)
+
+class SinusoidalPosEmb(nn.Module):
+    def __init__(self, dim, theta = 10000):
+        super().__init__()
+        self.dim = dim
+        half_dim = dim // 2
+        freq_seq = torch.arange(half_dim)
+        inv_freq = (freq_seq * -(math.log(theta) / (half_dim - 1))).exp()
+        self.register_buffer('inv_freq', inv_freq)
+
+    def forward(self, x):
+        emb = einx.multiply('b, d -> b d', x, self.inv_freq)
+        return cat((emb.sin(), emb.cos()), dim = -1)
 
 # main class
 
@@ -312,19 +378,26 @@ class FlowBSRoformer(Module):
         multi_stft_resolutions_window_sizes: tuple[int, ...] = (4096, 2048, 1024, 512, 256),
         multi_stft_hop_size = 147,
         multi_stft_normalized = False,
-                multi_stft_window_fn: Callable = torch.hann_window,
+        multi_stft_window_fn: Callable = torch.hann_window,
         use_pope = False,
-        num_timesteps = 8,
         noise_std = 0.1,
-        noise_mean = 0.0
+        noise_mean = 0.0,
+        time_to_loss_weight_fn: Callable | None = None
     ):
         super().__init__()
 
-        self.num_timesteps = num_timesteps
         self.noise_std = noise_std
         self.noise_mean = noise_mean
 
-        self.time_embed = nn.Embedding(num_timesteps, dim)
+        self.time_to_loss_weight_fn = time_to_loss_weight_fn
+
+        self.time_cond_dim = dim * 4
+        self.time_mlp = nn.Sequential(
+            SinusoidalPosEmb(dim),
+            Linear(dim, self.time_cond_dim),
+            nn.GELU(),
+            Linear(self.time_cond_dim, self.time_cond_dim)
+        )
 
         self.stereo = stereo
         self.audio_channels = 2 if stereo else 1
@@ -345,6 +418,7 @@ class FlowBSRoformer(Module):
             num_residual_streams = num_residual_streams,
             num_residual_fracs = num_residual_fracs,
             mc_hyper_conn_sinkhorn_iters = mc_hyper_conn_sinkhorn_iters,
+            time_cond_dim = self.time_cond_dim,
             norm_output = False
         )
 
@@ -440,13 +514,10 @@ class FlowBSRoformer(Module):
     def sample(
         self,
         raw_audio,
-        steps = None
+        steps = 10
     ):
         self.eval()
         device, batch = raw_audio.device, raw_audio.shape[0]
-        steps = default(steps, self.num_timesteps)
-
-        assert divisible_by(self.num_timesteps, steps), f'number of training timesteps ({self.num_timesteps}) must be divisible by the sampling steps ({steps})'
 
         num_stems = len(self.stft_estimators)
         channels = self.audio_channels
@@ -469,14 +540,14 @@ class FlowBSRoformer(Module):
         # denoising loop
 
         for time in times[:-1].unbind():
-            time_indices = torch.full((batch,), int(time.item() * self.num_timesteps), device = device, dtype = torch.long)
+            time_batch = torch.full((batch,), time.item(), device = device)
 
             # predict clean target
 
             pred_target = self.forward(
                 raw_audio,
                 noised_target = audio,
-                time_indices = time_indices
+                times = time_batch
             )
 
             time = pad_right_ndim_to(time, audio.ndim)
@@ -496,7 +567,7 @@ class FlowBSRoformer(Module):
         raw_audio,
         target = None,
         noised_target = None,
-        time_indices = None,
+        times = None,
         return_loss_breakdown = False
     ):
         """
@@ -524,13 +595,12 @@ class FlowBSRoformer(Module):
         # flow matching training logic
 
         if exists(target) and not exists(noised_target):
-            if not exists(time_indices):
-                time_indices = torch.randint(0, self.num_timesteps, (batch,), device = device)
+            if not exists(times):
+                times = torch.rand((batch,), device = device)
 
             noise = torch.randn_like(target) * self.noise_std + self.noise_mean
 
-            t = time_indices.float() / self.num_timesteps
-            t = pad_right_ndim_to(t, target.ndim)
+            t = pad_right_ndim_to(times, target.ndim)
 
             noised_target = noise.lerp(target, t)
 
@@ -543,7 +613,7 @@ class FlowBSRoformer(Module):
         elif noised_target.ndim == 4:
             noised_target = rearrange(noised_target, 'b n s t -> b (n s) t')
 
-        audio_input = torch.cat((raw_audio, noised_target), dim = 1)
+        audio_input = cat((raw_audio, noised_target), dim = 1)
 
         channels = raw_audio.shape[1]
         assert (not self.stereo and channels == 1) or (self.stereo and channels == 2), 'stereo needs to be set to True if passing in audio signal that is stereo (channel dimension of 2). also need to be False if mono (channel dimension of 1)'
@@ -569,11 +639,9 @@ class FlowBSRoformer(Module):
 
         # time condition
 
-        if exists(time_indices):
-            time_tokens = self.time_embed(time_indices)
-            time_tokens = rearrange(time_tokens, 'b d -> b 1 1 d')
-            time_tokens = time_tokens.expand(-1, x.shape[1], -1, -1)
-            x = torch.cat((time_tokens, x), dim = 2)
+        time_cond = None
+        if exists(times):
+            time_cond = self.time_mlp(times)
 
         # value residuals
 
@@ -591,7 +659,7 @@ class FlowBSRoformer(Module):
             x = rearrange(x, 'b t f d -> b f t d')
             x, unpack_time = pack_with_inverse(x, '* t d')
 
-            x, next_time_v_residual = time_transformer(x, value_residual = time_v_residual)
+            x, next_time_v_residual = time_transformer(x, value_residual = time_v_residual, time_cond = time_cond)
 
             time_v_residual = default(time_v_residual, next_time_v_residual)
 
@@ -599,7 +667,7 @@ class FlowBSRoformer(Module):
             x = rearrange(x, 'b f t d -> b t f d')
             x, unpack_freq = pack_with_inverse(x, '* f d')
 
-            x, next_freq_v_residual = freq_transformer(x, value_residual = freq_v_residual)
+            x, next_freq_v_residual = freq_transformer(x, value_residual = freq_v_residual, time_cond = time_cond)
 
             freq_v_residual = default(freq_v_residual, next_freq_v_residual)
 
@@ -608,9 +676,6 @@ class FlowBSRoformer(Module):
         # maybe reduce residual streams
 
         x = self.reduce_stream(x)
-
-        if exists(time_indices):
-            x = x[:, :, 1:]
 
         x = self.final_norm(x)
 
@@ -651,7 +716,10 @@ class FlowBSRoformer(Module):
 
         target = target[..., :recon_audio.shape[-1]] # protect against lost length on istft
 
-        loss = F.l1_loss(recon_audio, target)
+        # per example losses
+
+        loss = F.l1_loss(recon_audio, target, reduction = 'none')
+        loss = reduce(loss, 'b ... -> b', 'mean')
 
         multi_stft_resolution_loss = 0.
 
@@ -668,13 +736,20 @@ class FlowBSRoformer(Module):
             recon_Y = torch.stft(rearrange(recon_audio, '... s t -> (... s) t'), **res_stft_kwargs)
             target_Y = torch.stft(rearrange(target, '... s t -> (... s) t'), **res_stft_kwargs)
 
-            multi_stft_resolution_loss = multi_stft_resolution_loss + F.l1_loss(recon_Y, target_Y)
+            res_loss = F.l1_loss(recon_Y, target_Y, reduction = 'none')
+            res_loss = reduce(res_loss, '(b r) ... -> b', 'mean', b = recon_audio.shape[0])
+
+            multi_stft_resolution_loss = multi_stft_resolution_loss + res_loss
 
         weighted_multi_resolution_loss = multi_stft_resolution_loss * self.multi_stft_resolution_loss_weight
 
-        total_loss =  loss + weighted_multi_resolution_loss
+        total_loss = loss + weighted_multi_resolution_loss
+
+        if exists(self.time_to_loss_weight_fn):
+            loss_weight = self.time_to_loss_weight_fn(times)
+            total_loss = total_loss * loss_weight
 
         if not return_loss_breakdown:
-            return total_loss
+            return total_loss.mean()
 
-        return total_loss, (loss, multi_stft_resolution_loss)
+        return total_loss.mean(), (loss.mean(), multi_stft_resolution_loss.mean() if isinstance(multi_stft_resolution_loss, torch.Tensor) else multi_stft_resolution_loss)

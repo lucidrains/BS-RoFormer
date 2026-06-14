@@ -30,7 +30,8 @@ def test_mel_band_roformer(use_pope):
     out = model(inp)
 
 @pytest.mark.parametrize('use_pope', [True, False])
-def test_flow_bs_roformer(use_pope):
+@pytest.mark.parametrize('time_to_loss_weight_fn', [None, lambda t: t])
+def test_flow_bs_roformer(use_pope, time_to_loss_weight_fn):
     from bs_roformer.flow_bs_roformer import FlowBSRoformer
 
     model = FlowBSRoformer(
@@ -38,7 +39,8 @@ def test_flow_bs_roformer(use_pope):
         depth = 1,
         time_transformer_depth = 1,
         freq_transformer_depth = 1,
-        use_pope = use_pope
+        use_pope = use_pope,
+        time_to_loss_weight_fn = time_to_loss_weight_fn
     )
 
     inp = torch.randn(1, 35280)
