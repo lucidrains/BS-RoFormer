@@ -1,6 +1,7 @@
 from __future__ import annotations
 import math
 from functools import partial
+from collections import namedtuple
 
 import torch
 from torch import nn, einsum, tensor, Tensor, cat
@@ -22,6 +23,8 @@ from hyper_connections import mc_get_init_and_expand_reduce_stream_functions
 from torch_einops_utils import pad_right_ndim_to, pack_with_inverse, tree_flatten_with_inverse
 
 # helper functions
+
+Losses = namedtuple('Losses', ['loss', 'multi_stft_resolution_loss'])
 
 def exists(val):
     return val is not None
@@ -510,6 +513,8 @@ class FlowBSRoformer(Module):
             normalized = multi_stft_normalized
         )
 
+        self.register_buffer('zero', tensor(0.), persistent = False)
+
     @torch.no_grad()
     def sample(
         self,
@@ -721,7 +726,7 @@ class FlowBSRoformer(Module):
         loss = F.l1_loss(recon_audio, target, reduction = 'none')
         loss = reduce(loss, 'b ... -> b', 'mean')
 
-        multi_stft_resolution_loss = 0.
+        multi_stft_resolution_loss = self.zero
 
         for window_size in self.multi_stft_resolutions_window_sizes:
 
@@ -752,4 +757,4 @@ class FlowBSRoformer(Module):
         if not return_loss_breakdown:
             return total_loss.mean()
 
-        return total_loss.mean(), (loss.mean(), multi_stft_resolution_loss.mean() if isinstance(multi_stft_resolution_loss, torch.Tensor) else multi_stft_resolution_loss)
+        return total_loss.mean(), Losses(loss.mean(), multi_stft_resolution_loss.mean())

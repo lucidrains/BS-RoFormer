@@ -1,6 +1,6 @@
 [project]
 name = "BS-RoFormer"
-version = "1.2.2"
+version = "1.2.4"
 description = "BS-RoFormer - Band-Split Rotary Transformer for SOTA Music Source Separation"
 authors = [
     { name = "Phil Wang", email = "lucidrains@gmail.com" }
