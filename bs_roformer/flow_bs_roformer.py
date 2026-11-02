@@ -8,7 +8,7 @@ from torch import nn, einsum, tensor, Tensor, cat
 from torch.nn import Module, ModuleList, Linear
 import torch.nn.functional as F
 
-from bs_roformer.attend import Attend
+from bs_roformer.attend import Attend, GatedXSA
 
 from beartype.typing import Callable
 from beartype import beartype
@@ -132,7 +132,8 @@ class Attention(Module):
         rotary_embed = None,
         pope_embed = None,
         flash = True,
-        learned_value_residual_mix = False
+        learned_value_residual_mix = False,
+        use_gated_xsa = False
     ):
         super().__init__()
         self.heads = heads
@@ -157,6 +158,8 @@ class Attention(Module):
             nn.Dropout(dropout)
         )
 
+        self.xsa = GatedXSA(heads) if use_gated_xsa else None
+
     def forward(self, x, value_residual = None):
         q, k, v = rearrange(self.to_qkv(x), 'b n (qkv h d) -> qkv b h n d', qkv = 3, h = self.heads)
 
@@ -177,6 +180,9 @@ class Attention(Module):
             out = self.attend(q, k, v)
         else:
             out = self.attend(q, k, v)
+
+        if exists(self.xsa):
+            out = self.xsa(out, v)
 
         gates = self.to_gates(x)
         out = out * rearrange(gates, 'b n h -> b h n 1').sigmoid()
@@ -204,7 +210,8 @@ class Transformer(Module):
         num_residual_streams = 1,
         num_residual_fracs = 1,
         mc_hyper_conn_sinkhorn_iters = 2,
-        time_cond_dim = None
+        time_cond_dim = None,
+        use_gated_xsa = False
     ):
         super().__init__()
         self.layers = ModuleList([])
@@ -213,7 +220,7 @@ class Transformer(Module):
 
         for _ in range(depth):
             self.layers.append(ModuleList([
-                init_hyper_conn(dim = dim, branch = AdaLN(dim, time_cond_dim, Attention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, rotary_embed = rotary_embed, pope_embed = pope_embed, flash = flash_attn, learned_value_residual_mix = add_value_residual))),
+                init_hyper_conn(dim = dim, branch = AdaLN(dim, time_cond_dim, Attention(dim = dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, rotary_embed = rotary_embed, pope_embed = pope_embed, flash = flash_attn, learned_value_residual_mix = add_value_residual, use_gated_xsa = use_gated_xsa))),
                 init_hyper_conn(dim = dim, branch = AdaLN(dim, time_cond_dim, FeedForward(dim = dim, mult = ff_mult, dropout = ff_dropout)))
             ]))
 
@@ -383,6 +390,7 @@ class FlowBSRoformer(Module):
         multi_stft_normalized = False,
         multi_stft_window_fn: Callable = torch.hann_window,
         use_pope = False,
+        use_gated_xsa = False, # gated XSA (Alex Wa), improves on XSA (Zhai et al., https://arxiv.org/abs/2603.09078)
         noise_std = 0.1,
         noise_mean = 0.0,
         time_to_loss_weight_fn: Callable | None = None
@@ -422,7 +430,8 @@ class FlowBSRoformer(Module):
             num_residual_fracs = num_residual_fracs,
             mc_hyper_conn_sinkhorn_iters = mc_hyper_conn_sinkhorn_iters,
             time_cond_dim = self.time_cond_dim,
-            norm_output = False
+            norm_output = False,
+            use_gated_xsa = use_gated_xsa
         )
 
         if use_pope:

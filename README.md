@@ -220,3 +220,15 @@ out = model.sample(x)
     url     = {https://arxiv.org/abs/2511.13720},
 }
 ```
+
+```bibtex
+@misc{zhai2026exclusiveselfattention,
+    title   = {Exclusive Self Attention},
+    author  = {Shuangfei Zhai},
+    year    = {2026},
+    eprint  = {2603.09078},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.LG},
+    url     = {https://arxiv.org/abs/2603.09078},
+}
+```

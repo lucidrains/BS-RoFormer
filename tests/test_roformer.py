@@ -4,34 +4,39 @@ from bs_roformer import BSRoformer, MelBandRoformer
 from PoPE_pytorch import PoPE
 
 @pytest.mark.parametrize('use_pope', [True, False])
-def test_bs_roformer(use_pope):
+@pytest.mark.parametrize('use_gated_xsa', [True, False])
+def test_bs_roformer(use_pope, use_gated_xsa):
     model = BSRoformer(
         dim = 512,
         depth = 1,
         time_transformer_depth = 1,
         freq_transformer_depth = 1,
-        use_pope = use_pope
+        use_pope = use_pope,
+        use_gated_xsa = use_gated_xsa
     )
 
     inp = torch.randn(1, 1, 35280)
     out = model(inp)
 
 @pytest.mark.parametrize('use_pope', [True, False])
-def test_mel_band_roformer(use_pope):
+@pytest.mark.parametrize('use_gated_xsa', [True, False])
+def test_mel_band_roformer(use_pope, use_gated_xsa):
     model = MelBandRoformer(
         dim = 512,
         depth = 1,
         time_transformer_depth = 1,
         freq_transformer_depth = 1,
-        use_pope = use_pope
+        use_pope = use_pope,
+        use_gated_xsa = use_gated_xsa
     )
 
     inp = torch.randn(1, 1, 35280)
     out = model(inp)
 
 @pytest.mark.parametrize('use_pope', [True, False])
+@pytest.mark.parametrize('use_gated_xsa', [True, False])
 @pytest.mark.parametrize('time_to_loss_weight_fn', [None, lambda t: t])
-def test_flow_bs_roformer(use_pope, time_to_loss_weight_fn):
+def test_flow_bs_roformer(use_pope, use_gated_xsa, time_to_loss_weight_fn):
     from bs_roformer.flow_bs_roformer import FlowBSRoformer
 
     model = FlowBSRoformer(
@@ -40,6 +45,7 @@ def test_flow_bs_roformer(use_pope, time_to_loss_weight_fn):
         time_transformer_depth = 1,
         freq_transformer_depth = 1,
         use_pope = use_pope,
+        use_gated_xsa = use_gated_xsa,
         time_to_loss_weight_fn = time_to_loss_weight_fn
     )
 
