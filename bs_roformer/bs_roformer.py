@@ -103,7 +103,7 @@ class Attention(Module):
             nn.Dropout(dropout)
         )
 
-        self.xsa = GatedXSA(heads) if use_gated_xsa else None
+        self.xsa = GatedXSA(dim, heads) if use_gated_xsa else None
 
     def forward(self, x, value_residual = None):
         x = self.norm(x)
@@ -129,7 +129,7 @@ class Attention(Module):
             out = self.attend(q, k, v)
 
         if exists(self.xsa):
-            out = self.xsa(out, v)
+            out = self.xsa(out, v, x)
 
         gates = self.to_gates(x)
         out = out * rearrange(gates, 'b n h -> b h n 1').sigmoid()

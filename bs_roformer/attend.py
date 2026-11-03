@@ -6,7 +6,7 @@ import torch
 from torch import nn, einsum
 import torch.nn.functional as F
 
-import einx
+from einops import rearrange
 
 # constants
 
@@ -34,15 +34,17 @@ def once(fn):
 print_once = once(print)
 
 class GatedXSA(nn.Module):
-    def __init__(self, heads):
+    def __init__(self, dim, heads):
         super().__init__()
-        self.gate = nn.Parameter(torch.zeros(heads)) # starts as identity
+        self.to_gate = nn.Linear(dim, heads)
+        nn.init.zeros_(self.to_gate.weight)
+        nn.init.zeros_(self.to_gate.bias)
 
-    def forward(self, out, v):
+    def forward(self, out, v, x):
         v_hat = F.normalize(v, dim = -1, eps = 1e-4)
-        projection = (out * v_hat).sum(dim = -1, keepdim = True)
-        correction = einx.multiply('h, b h n 1, b h n d -> b h n d', self.gate.tanh(), projection, v_hat)
-        return out - correction
+        proj = (out * v_hat).sum(dim = -1, keepdim = True)
+        gate = rearrange(self.to_gate(x), 'b n h -> b h n 1')
+        return out - proj * v_hat * gate.tanh()
 
 # main class
 
