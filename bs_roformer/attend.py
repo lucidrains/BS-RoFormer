@@ -3,10 +3,13 @@ from packaging import version
 from collections import namedtuple
 
 import torch
+from torch.nn import Module
 from torch import nn, einsum
 import torch.nn.functional as F
 
 from einops import rearrange
+
+from torch_einops_utils import parallel_component
 
 # constants
 
@@ -33,22 +36,27 @@ def once(fn):
 
 print_once = once(print)
 
-class GatedXSA(nn.Module):
-    def __init__(self, dim, heads):
+# exclusive self-attention, gated variant
+
+class GatedXSA(Module):
+    def __init__(
+        self,
+        dim,
+        heads
+    ):
         super().__init__()
         self.to_gate = nn.Linear(dim, heads)
         nn.init.zeros_(self.to_gate.weight)
         nn.init.zeros_(self.to_gate.bias)
 
     def forward(self, out, v, x):
-        v_hat = F.normalize(v, dim = -1, eps = 1e-4)
-        proj = (out * v_hat).sum(dim = -1, keepdim = True)
+        parallel = parallel_component(out, v)
         gate = rearrange(self.to_gate(x), 'b n h -> b h n 1')
-        return out - proj * v_hat * gate.tanh()
+        return out - parallel * gate.tanh()
 
 # main class
 
-class Attend(nn.Module):
+class Attend(Module):
     def __init__(
         self,
         dropout = 0.,

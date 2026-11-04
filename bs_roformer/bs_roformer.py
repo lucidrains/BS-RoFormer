@@ -18,6 +18,8 @@ from einops import rearrange, pack, unpack
 
 from hyper_connections import mc_get_init_and_expand_reduce_stream_functions
 
+from torch_einops_utils import pad_at_dim
+
 # helper functions
 
 def exists(val):
@@ -538,7 +540,7 @@ class BSRoformer(Module):
 
         stft_repr = rearrange(stft_repr, 'b n (f s) t -> (b n s) f t', s = self.audio_channels)
 
-        stft_repr = F.pad(stft_repr, (0, 0, *self.freq_pad))
+        stft_repr = pad_at_dim(stft_repr, self.freq_pad, dim = -2)
 
         if self.zero_dc:
             # whether to dc filter

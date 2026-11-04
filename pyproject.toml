@@ -1,6 +1,6 @@
 [project]
 name = "BS-RoFormer"
-version = "1.4.0"
+version = "1.4.1"
 description = "BS-RoFormer - Band-Split Rotary Transformer for SOTA Music Source Separation"
 authors = [
     { name = "Phil Wang", email = "lucidrains@gmail.com" }
@@ -33,7 +33,7 @@ dependencies = [
     "PoPE-pytorch>=0.0.15",
     "rotary-embedding-torch>=0.3.6",
     "torch>=2.0",
-    "torch-einops-utils>=0.1.2"
+    "torch-einops-utils>=0.2.4"
 ]
 
 [project.urls]

@@ -20,7 +20,7 @@ import einx
 from einops import rearrange, repeat, reduce
 
 from hyper_connections import mc_get_init_and_expand_reduce_stream_functions
-from torch_einops_utils import pad_right_ndim_to, pack_with_inverse, tree_flatten_with_inverse
+from torch_einops_utils import pad_at_dim, pad_right_ndim_to, pack_with_inverse, tree_flatten_with_inverse
 
 # helper functions
 
@@ -706,7 +706,7 @@ class FlowBSRoformer(Module):
 
         pred_stft = rearrange(pred_stft, 'b n (f s) t -> (b n s) f t', s = self.audio_channels)
 
-        pred_stft = F.pad(pred_stft, (0, 0, *self.freq_pad))
+        pred_stft = pad_at_dim(pred_stft, self.freq_pad, dim = -2)
 
         if self.zero_dc:
             # whether to dc filter
